@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Archive, Check, ChevronDown, ChevronsDown, Clock3, Code2, Ellipsis, EllipsisVertical, FolderOpen, Image as ImageIcon, List, Minimize2, Paperclip, Pin, Plus, Search, Settings, Star, Tag, Trash2, X } from 'lucide-react'
 import type { Attachment, Folder, Note, Project, SaveStatus } from '../types'
 import { NoteEditor } from './NoteEditor'
@@ -37,10 +37,17 @@ export function NoteDetail(props: Props) {
   const { note, projects, folders, tags, attachments, status, compact, onUpdate, onFiles, onPick, onTags, onRemoveAttachment, onState, onWorkspace, onCapsule, onSearch, onSettings, onVersions, onExport, onRetry, onToggleProjects, onNewQuickNote, projectsOpen } = props
   const [tagInput, setTagInput] = useState('')
   const [showAttachments, setShowAttachments] = useState(false)
+  const observedAttachments = useRef({ noteId: note.id, count: attachments.length })
   const [showProperties, setShowProperties] = useState(() => window.innerWidth >= 1100)
   const [menu, setMenu] = useState(false)
   const [showFormatting, setShowFormatting] = useState(false)
   const [showTags, setShowTags] = useState(false)
+  useEffect(() => {
+    const previous = observedAttachments.current
+    if (previous.noteId !== note.id) setShowAttachments(false)
+    else if (compact && attachments.length > previous.count) setShowAttachments(true)
+    observedAttachments.current = { noteId: note.id, count: attachments.length }
+  }, [attachments.length, compact, note.id])
   const projectFolders = folders.filter(f => f.projectId === note.projectId && !f.isDeleted)
   const visibleProjects = projects.filter(p => !p.isDeleted && !p.isArchived)
   const addTag = () => { const tag = tagInput.trim(); if (tag && !tags.some(t => t.toLowerCase() === tag.toLowerCase())) void onTags([...tags,tag]); setTagInput('') }

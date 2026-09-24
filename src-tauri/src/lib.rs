@@ -144,7 +144,7 @@ pub fn run() {
             commands::new_note,commands::get_note,commands::save_note,commands::list_notes,commands::search_notes,
             commands::set_note_state,commands::empty_trash,commands::get_tags,commands::set_tags,
             commands::list_versions,commands::restore_version,commands::list_attachments,commands::import_attachment,
-            commands::import_attachment_path,commands::delete_attachment,commands::start_attachment_drag,commands::get_settings,commands::set_setting,
+            commands::import_attachment_path,commands::delete_attachment,commands::open_attachment,commands::reveal_attachment,commands::start_attachment_drag,commands::get_settings,commands::set_setting,
             commands::data_directory,commands::create_backup,commands::auto_backup_if_due,commands::export_project,commands::restore_backup,commands::export_note_file,
             commands::import_text_note,commands::set_window_mode,commands::get_window_mode,commands::set_capsule_active,commands::show_dialog,commands::get_dialog_request,commands::hide_dialog,commands::show_projects,commands::hide_projects,commands::is_app_focused,commands::quit_app,commands::report_error
         ])

@@ -1,6 +1,6 @@
 [package]
 name = "topnote"
-version = "0.1.2"
+version = "0.1.3"
 description = "Notas rápidas no topo da sua tela"
 authors = ["TopNote"]
 edition = "2021"

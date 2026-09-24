@@ -111,6 +111,16 @@ pub fn import_attachment_path(state: State<'_, AppState>, note_id: String, path:
 pub fn delete_attachment(state: State<'_, AppState>, id: String) -> Result<(), String> {
     attachments::delete(&state.connection()?, &state, &id)
 }
+#[tauri::command]
+pub fn open_attachment(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let path = attachments::file_path(&state.connection()?, &state, &id)?;
+    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|error| error.to_string())
+}
+#[tauri::command]
+pub fn reveal_attachment(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let path = attachments::file_path(&state.connection()?, &state, &id)?;
+    tauri_plugin_opener::reveal_item_in_dir(path).map_err(|error| error.to_string())
+}
 #[cfg(windows)]
 #[tauri::command]
 pub async fn start_attachment_drag(app: AppHandle, window: tauri::Window, state: State<'_, AppState>, id: String) -> Result<(), String> {

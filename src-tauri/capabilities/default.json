@@ -23,14 +23,6 @@
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
-    "opener:default",
-    {
-      "identifier": "opener:allow-open-path",
-      "allow": [
-        {
-          "path": "$APPLOCALDATA/attachments/**/*"
-        }
-      ]
-    }
+    "opener:default"
   ]
 }

@@ -1,5 +1,4 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { ExternalLink, FolderOpen, GripVertical, Paperclip, Trash2, X } from 'lucide-react'
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Attachment } from '../types'
@@ -25,6 +24,7 @@ type DragPress = { id: string; pointerId: number; x: number; y: number }
 export function AttachmentsPanel({ attachments, onRemove }: { attachments: Attachment[]; onRemove: (attachment: Attachment) => void }) {
   const [preview, setPreview] = useState<Attachment | null>(null)
   const [dragError, setDragError] = useState('')
+  const [actionError, setActionError] = useState('')
   const press = useRef<DragPress | null>(null)
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>, item: Attachment) {
@@ -50,6 +50,14 @@ export function AttachmentsPanel({ attachments, onRemove }: { attachments: Attac
     if (press.current?.pointerId === event.pointerId) press.current = null
   }
 
+  function runAction(action: 'open' | 'reveal', item: Attachment) {
+    setActionError('')
+    const request = action === 'open' ? api.openAttachment(item.id) : api.revealAttachment(item.id)
+    void request.catch(error => {
+      setActionError(`Não foi possível ${action === 'open' ? 'abrir' : 'localizar'} “${item.originalName}”: ${String(error)}`)
+    })
+  }
+
   return <>
     <div className="property-section"><div className="property-heading"><Paperclip size={15}/>Anexos <span>{attachments.length}</span></div>
       {attachments.length === 0 && <p className="property-empty">Arraste ou cole arquivos no editor.</p>}
@@ -61,10 +69,11 @@ export function AttachmentsPanel({ attachments, onRemove }: { attachments: Attac
         {item.mimeType.startsWith('image/') ? <button className="attachment-thumb" onClick={() => setPreview(item)} title="Ampliar imagem"><img src={convertFileSrc(item.path)} alt={item.originalName} loading="lazy" draggable={false} /></button> : <div className={`attachment-file-icon attachment-file-${badge.kind}`} aria-hidden="true"><span>{badge.label}</span></div>}
         <div className="attachment-info"><strong title={item.originalName}>{item.originalName}</strong><span>{formatBytes(item.byteSize)}</span></div>
         <GripVertical className="attachment-drag-grip" size={13} aria-hidden="true" />
-        <div className="attachment-actions"><button title="Abrir" aria-label="Abrir arquivo" onClick={() => void openPath(item.path)}><ExternalLink size={14}/></button><button title="Mostrar no Explorer" aria-label="Mostrar no Explorer" onClick={() => void revealItemInDir(item.path)}><FolderOpen size={14}/></button><button title="Remover da nota" aria-label="Remover anexo" onClick={() => onRemove(item)}><Trash2 size={14}/></button></div>
+        <div className="attachment-actions"><button title="Abrir" aria-label={`Abrir ${item.originalName}`} onClick={() => runAction('open', item)}><ExternalLink size={14}/></button><button title="Mostrar no Explorer" aria-label={`Mostrar ${item.originalName} no Explorer`} onClick={() => runAction('reveal', item)}><FolderOpen size={14}/></button><button title="Remover da nota" aria-label="Remover anexo" onClick={() => onRemove(item)}><Trash2 size={14}/></button></div>
       </div>})}
       {attachments.length > 0 && <p className="attachment-drag-hint">Arraste um anexo pelo nome para copiá-lo.</p>}
       {dragError && <p className="attachment-drag-error" role="alert">{dragError}</p>}
+      {actionError && <p className="attachment-drag-error" role="alert">{actionError}</p>}
     </div>
     {preview && <div className="image-preview-backdrop" onClick={() => setPreview(null)}><div className="image-preview" onClick={event => event.stopPropagation()}><button className="image-preview-close" onClick={() => setPreview(null)} aria-label="Fechar"><X size={20}/></button><img src={convertFileSrc(preview.path)} alt={preview.originalName}/><div>{preview.originalName}</div></div></div>}
   </>

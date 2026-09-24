@@ -80,6 +80,14 @@ pub fn delete(conn: &Connection, state: &AppState, id: &str) -> Result<(), Strin
     Ok(())
 }
 
+pub fn file_path(conn: &Connection, state: &AppState, id: &str) -> Result<PathBuf, String> {
+    let relative: String = conn.query_row("SELECT stored_path FROM attachments WHERE id=?1", [id], |row| row.get(0))
+        .map_err(|_| "Anexo não encontrado.".to_string())?;
+    let path = state.safe_attachment_path(&relative)?;
+    if !path.is_file() { return Err("O arquivo anexado não está mais disponível.".into()); }
+    Ok(path)
+}
+
 pub fn stage_drag_file(conn: &Connection, state: &AppState, id: &str) -> Result<PathBuf, String> {
     let (relative, original_name): (String, String) = conn
         .query_row("SELECT stored_path,original_name FROM attachments WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -142,6 +150,8 @@ mod tests {
         let connection = state.connection().unwrap();
         let note = repository::new_note(&connection, None, None).unwrap();
         let attachment = import_bytes(&connection, &state, &note.id, "Prompt - Copia.txt", b"conteudo").unwrap();
+        assert_eq!(file_path(&connection, &state, &attachment.id).unwrap(), PathBuf::from(&attachment.path));
+        assert!(file_path(&connection, &state, "inexistente").is_err());
 
         let staged = stage_drag_file(&connection, &state, &attachment.id).unwrap();
         assert_eq!(staged.file_name().unwrap().to_string_lossy(), "Prompt - Copia.txt");
