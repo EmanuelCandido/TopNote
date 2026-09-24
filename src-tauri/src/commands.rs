@@ -111,6 +111,44 @@ pub fn import_attachment_path(state: State<'_, AppState>, note_id: String, path:
 pub fn delete_attachment(state: State<'_, AppState>, id: String) -> Result<(), String> {
     attachments::delete(&state.connection()?, &state, &id)
 }
+#[cfg(windows)]
+#[tauri::command]
+pub async fn start_attachment_drag(app: AppHandle, window: tauri::Window, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let staged = attachments::stage_drag_file(&state.connection()?, &state, &id)?;
+    let drag_path = staged.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    if let Err(error) = app.run_on_main_thread(move || {
+        let result = drag::start_drag(
+            &window,
+            drag::DragItem::Files(vec![drag_path]),
+            drag::Image::Raw(include_bytes!("../icons/32x32.png").to_vec()),
+            |_, _| {},
+            drag::Options::default(),
+        ).map_err(|error| error.to_string());
+        let _ = sender.send(result);
+    }) {
+        attachments::remove_staged_drag_file(&staged);
+        return Err(error.to_string());
+    }
+    let result = match receiver.recv() {
+        Ok(result) => result,
+        Err(error) => {
+            attachments::remove_staged_drag_file(&staged);
+            return Err(error.to_string());
+        }
+    };
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(120));
+        attachments::remove_staged_drag_file(&staged);
+    });
+    result
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+pub fn start_attachment_drag() -> Result<(), String> {
+    Err("Arrastar anexos para fora do aplicativo está disponível no Windows.".into())
+}
 #[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> Result<HashMap<String, String>, String> {
     let conn = state.connection()?;

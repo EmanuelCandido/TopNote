@@ -3,6 +3,7 @@ use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use uuid::Uuid;
 
 const MAX_ATTACHMENT_SIZE: usize = 50 * 1024 * 1024;
@@ -79,6 +80,47 @@ pub fn delete(conn: &Connection, state: &AppState, id: &str) -> Result<(), Strin
     Ok(())
 }
 
+pub fn stage_drag_file(conn: &Connection, state: &AppState, id: &str) -> Result<PathBuf, String> {
+    let (relative, original_name): (String, String) = conn
+        .query_row("SELECT stored_path,original_name FROM attachments WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|_| "Anexo não encontrado.".to_string())?;
+    let source = state.safe_attachment_path(&relative)?;
+    if !source.is_file() { return Err("O arquivo anexado não está mais disponível.".into()); }
+
+    let directory = state.root.join("drag-out").join(Uuid::new_v4().to_string());
+    fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let staged = directory.join(safe_name(&original_name));
+    if fs::hard_link(&source, &staged).is_err() {
+        if let Err(error) = fs::copy(&source, &staged) {
+            let _ = fs::remove_dir(&directory);
+            return Err(error.to_string());
+        }
+    }
+    Ok(staged)
+}
+
+pub fn remove_staged_drag_file(path: &Path) {
+    let _ = fs::remove_file(path);
+    if let Some(directory) = path.parent() { let _ = fs::remove_dir(directory); }
+}
+
+pub fn cleanup_old_drag_files(state: &AppState) {
+    let root = state.root.join("drag-out");
+    let Ok(entries) = fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let directory = entry.path();
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) ||
+            !directory.file_name().and_then(|name| name.to_str()).is_some_and(|name| Uuid::parse_str(name).is_ok()) { continue }
+        let old = entry.metadata().and_then(|meta| meta.modified()).ok()
+            .and_then(|modified| modified.elapsed().ok()).is_some_and(|age| age > Duration::from_secs(86_400));
+        if !old { continue }
+        let Ok(mut files) = fs::read_dir(&directory) else { continue };
+        let Some(Ok(file)) = files.next() else { continue };
+        if files.next().is_some() || !file.file_type().is_ok_and(|kind| kind.is_file()) { continue }
+        remove_staged_drag_file(&file.path());
+    }
+}
+
 pub fn remove_note_files(conn: &Connection, state: &AppState, note_id: &str) -> Result<(), String> {
     let files = list(conn,state,note_id)?;
     for file in files {
@@ -86,4 +128,27 @@ pub fn remove_note_files(conn: &Connection, state: &AppState, note_id: &str) -> 
         if path.exists() { fs::remove_file(path).map_err(|e| e.to_string())?; }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository;
+
+    #[test]
+    fn drag_copy_keeps_original_name_and_attached_file() {
+        let temporary = tempfile::tempdir().unwrap();
+        let state = AppState::new(temporary.path().join("data")).unwrap();
+        let connection = state.connection().unwrap();
+        let note = repository::new_note(&connection, None, None).unwrap();
+        let attachment = import_bytes(&connection, &state, &note.id, "Prompt - Copia.txt", b"conteudo").unwrap();
+
+        let staged = stage_drag_file(&connection, &state, &attachment.id).unwrap();
+        assert_eq!(staged.file_name().unwrap().to_string_lossy(), "Prompt - Copia.txt");
+        assert_eq!(fs::read(&staged).unwrap(), b"conteudo");
+
+        remove_staged_drag_file(&staged);
+        assert!(!staged.exists());
+        assert_eq!(fs::read(&attachment.path).unwrap(), b"conteudo");
+    }
 }

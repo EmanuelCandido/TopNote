@@ -4,11 +4,11 @@ Aplicativo de notas locais para Windows 10 e 11. A cápsula fica no topo da tela
 
 ## Instalação
 
-Baixe e execute o [instalador do TopNote para Windows 64 bits](releases/TopNote_0.1.1_x64-setup.exe). Ele funciona no Windows 10 e 11 e instala o WebView2 se o sistema ainda não o tiver; essa etapa pode exigir conexão com a internet. Depois, abra **TopNote** pelo menu Iniciar. Na primeira execução, conclua as três telas iniciais.
+Baixe e execute o [instalador do TopNote para Windows 64 bits](releases/TopNote_0.1.2_x64-setup.exe). Ele funciona no Windows 10 e 11 e instala o WebView2 se o sistema ainda não o tiver; essa etapa pode exigir conexão com a internet. Depois, abra **TopNote** pelo menu Iniciar. Na primeira execução, conclua as três telas iniciais.
 
 O instalador não tem assinatura de código. O Windows pode mostrar um aviso do SmartScreen; confira a origem do arquivo antes de executá-lo. Para compartilhar, envie o instalador da pasta `releases/` ou o link acima.
 
-SHA-256 do instalador 0.1.1: `757EB3C49421B0BCACEF0F72D5541549D2BE17FC6A531D735A2D8D561783CDE6`.
+SHA-256 do instalador 0.1.2: `B6BDA9E816F7EE87EF496720FAC4BA6CE7E2A18B5FBE3346E61ED4FF4AFE45B6`.
 
 ## Uso rápido
 
@@ -21,6 +21,8 @@ SHA-256 do instalador 0.1.1: `757EB3C49421B0BCACEF0F72D5541549D2BE17FC6A531D735A
 A cápsula fica quase invisível em repouso e aparece ao passar o mouse. Toda a cápsula responde ao clique; segure o botão esquerdo e arraste para movê-la. O editor e o Workspace podem ser movidos pelo cabeçalho e redimensionados pelos cantos e bordas. O tamanho escolhido é lembrado.
 
 O editor, a cápsula, o seletor de projetos e os formulários são janelas independentes. Os formulários mantêm os botões visíveis ao reduzir a altura e permitem rolar os campos. Ao criar ou editar um projeto, escolha uma cor e um dos ícones disponíveis. Para editar pelo seletor, use o botão direito no projeto.
+
+Para copiar um arquivo anexado para outra pasta, arraste a linha do anexo pelo nome até o Explorer. O arquivo continua anexado à nota. Os cartões mostram o tipo de arquivo, como TXT, PDF ou DOC.
 
 Em **Configurações → Geral**, ative ou desative **Iniciar com o Windows**. A opção **Mostrar cápsula ao iniciar** define se a cápsula aparece após a abertura automática; desativada, o aplicativo fica na bandeja do sistema.
 
@@ -96,4 +98,4 @@ MIT. Consulte [LICENSE](LICENSE).
 
 ## Versão
 
-0.1.1
+0.1.2

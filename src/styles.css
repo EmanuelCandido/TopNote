@@ -55,3 +55,15 @@
 .project-note-more:hover{color:var(--accent)}
 .project-add-note{display:grid;place-items:center;opacity:0}.project-nav-row:hover .project-add-note,.project-nav-row.active .project-add-note,.project-nav-row:focus-within .project-add-note{display:grid;opacity:1}
 .switch:disabled{opacity:.55;cursor:wait}
+
+/* A readable file type and a drag affordance in both note layouts. */
+.attachment-row{cursor:grab;user-select:none;-webkit-user-select:none}
+.attachment-row:active{cursor:grabbing}
+.attachment-row .attachment-actions button{cursor:pointer}
+.attachment-file-icon{border:1px solid currentColor;background:color-mix(in srgb,currentColor 13%,transparent)}
+.attachment-file-icon span{font-size:.58rem;line-height:1;font-weight:800;letter-spacing:-.035em}
+.attachment-file-pdf{color:#ef8f92}.attachment-file-document{color:#78aafb}.attachment-file-spreadsheet{color:#68c99c}.attachment-file-presentation{color:#f0ac75}.attachment-file-archive{color:#c4a3f2}.attachment-file-code{color:#9bb1d3}.attachment-file-audio,.attachment-file-video{color:#d3a3ec}
+.attachment-drag-grip{flex:none;color:var(--faint);opacity:.5}
+.attachment-row:hover .attachment-drag-grip{opacity:1;color:var(--accent)}
+.attachment-drag-hint{margin:8px 0 0;color:var(--faint);font-size:.65rem;line-height:1.35}
+.attachment-drag-error{margin:8px 0 0;color:var(--danger);font-size:.69rem;line-height:1.4}

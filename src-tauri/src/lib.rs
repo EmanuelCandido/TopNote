@@ -35,6 +35,7 @@ impl AppState {
         std::fs::create_dir_all(root.join("backups")).map_err(|e| e.to_string())?;
         let db_path = root.join("topnote.db");
         let state = Self {root,db_path,mode:Mutex::new("capsule".into()),hotkey:Mutex::new("Ctrl+Shift+Space".into()),dialog:Mutex::new(None)};
+        attachments::cleanup_old_drag_files(&state);
         let mut conn = state.connection()?;
         db::migrate(&mut conn).map_err(|e| e.to_string())?;
         if let Err(error) = backup::auto_backup(&conn,&state) { eprintln!("Backup automático: {error}"); }
@@ -143,7 +144,7 @@ pub fn run() {
             commands::new_note,commands::get_note,commands::save_note,commands::list_notes,commands::search_notes,
             commands::set_note_state,commands::empty_trash,commands::get_tags,commands::set_tags,
             commands::list_versions,commands::restore_version,commands::list_attachments,commands::import_attachment,
-            commands::import_attachment_path,commands::delete_attachment,commands::get_settings,commands::set_setting,
+            commands::import_attachment_path,commands::delete_attachment,commands::start_attachment_drag,commands::get_settings,commands::set_setting,
             commands::data_directory,commands::create_backup,commands::auto_backup_if_due,commands::export_project,commands::restore_backup,commands::export_note_file,
             commands::import_text_note,commands::set_window_mode,commands::get_window_mode,commands::set_capsule_active,commands::show_dialog,commands::get_dialog_request,commands::hide_dialog,commands::show_projects,commands::hide_projects,commands::is_app_focused,commands::quit_app,commands::report_error
         ])

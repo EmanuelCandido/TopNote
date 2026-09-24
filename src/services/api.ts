@@ -25,6 +25,7 @@ export const api = {
   importAttachment: (noteId: string, filename: string, data: number[]) => invoke<Attachment>('import_attachment', { noteId, filename, data }),
   importAttachmentPath: (noteId: string, path: string) => invoke<Attachment>('import_attachment_path', { noteId, path }),
   deleteAttachment: (id: string) => invoke<void>('delete_attachment', { id }),
+  startAttachmentDrag: (id: string) => invoke<void>('start_attachment_drag', { id }),
   settings: () => invoke<Settings>('get_settings'),
   setSetting: (key: string, value: string) => invoke<void>('set_setting', { key, value }),
   dataDirectory: () => invoke<string>('data_directory'),
