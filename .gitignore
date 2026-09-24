@@ -1,0 +1,14 @@
+node_modules/
+dist/
+src-tauri/gen/
+target/
+src-tauri/target/
+.npm-cache/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.log
+rustup-init.exe
+vs_BuildTools.exe
+.DS_Store
