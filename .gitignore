@@ -12,3 +12,4 @@ src-tauri/target/
 rustup-init.exe
 vs_BuildTools.exe
 .DS_Store
+media/astra-review/

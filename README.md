@@ -12,15 +12,17 @@
 
 <p align="center">
   <a href="releases/TopNote_0.1.3_x64-setup.exe"><strong>Baixar para Windows</strong></a>
-  · <a href="media/TopNote-promo.mp4">Ver apresentação (30 s)</a>
+  · <a href="media/TopNote-Astra.mp4">Ver apresentação (38 s)</a>
   · <a href="#desenvolvimento">Desenvolvimento</a>
 </p>
 
 ## Conheça o TopNote
 
-[![Prévia ilustrativa do TopNote](media/TopNote-poster.png)](media/TopNote-promo.mp4)
+[![TopNote — Boas ideias não esperam](media/TopNote-Astra-poster.png)](media/TopNote-Astra.mp4)
 
-*Clique na imagem para assistir ao vídeo. As telas do vídeo são uma apresentação ilustrativa dos recursos do aplicativo.*
+*Clique na imagem para assistir: Full HD, 60 fps e trilha original. As telas são ilustrativas, com dados fictícios.*
+
+[Nova apresentação · Astra](media/TopNote-Astra.mp4) · [Apresentação anterior · Sol](media/TopNote-promo.mp4) · [Comparador lado a lado](media/comparar.html)
 
 O TopNote combina uma cápsula discreta na área de trabalho com um editor rápido e um Workspace para notas maiores. O atalho global `Ctrl + Shift + Space` abre uma nota sem interromper a tarefa atual. O conteúdo é salvo automaticamente em um banco local.
 
@@ -105,17 +107,18 @@ Os artefatos saem em `src-tauri/target/release/` e `src-tauri/target/release/bun
 
 ### Vídeo de apresentação
 
-O vídeo de 30 segundos foi criado em [Remotion](https://www.remotion.dev/) com telas ilustrativas e dados fictícios. O projeto editável está em [`promo/`](promo/), separado das dependências do aplicativo.
+A apresentação de 38,4 segundos foi criada em [Remotion](https://www.remotion.dev/): sete cenas em 1920 × 1080, 60 fps, trilha instrumental original e efeitos sincronizados. O projeto editável e o guia das duas versões estão em [`promo/`](promo/), separados das dependências do aplicativo.
 
 ```powershell
 cd promo
 npm ci
 npm run studio  # prévia e edição
-npm run render  # gera media/TopNote-promo.mp4
-npm run poster  # gera media/TopNote-poster.png
+npm run astra:render  # gera media/TopNote-Astra.mp4
+npm run astra:poster  # gera media/TopNote-Astra-poster.png
+npm run astra:preview # abre um servidor local para comparar as versões
 ```
 
-O Remotion pode baixar um navegador para renderizar. Se o Chrome já estiver instalado, use a opção `--browser-executable` da CLI para apontar para ele. Consulte o [guia de renderização](https://www.remotion.dev/docs/cli/render).
+O projeto do vídeo requer Node.js 24+. O renderizador detecta Chrome ou Edge no Windows; para outro caminho, defina `REMOTION_BROWSER_EXECUTABLE`. Consulte as instruções completas em [`promo/README.md`](promo/README.md).
 
 ## Estrutura
 
