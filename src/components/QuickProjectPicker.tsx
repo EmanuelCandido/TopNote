@@ -1,4 +1,4 @@
-import { ChevronDown, FileText, Inbox, Plus } from 'lucide-react'
+import { ChevronDown, FileText, Plus } from 'lucide-react'
 import type { NoteSummary, Project } from '../types'
 import { ProjectIcon } from './ProjectIcon'
 
@@ -22,19 +22,19 @@ export function QuickProjectPicker({
   onToggle, onOpenNote, onNewNote, onLoadMore, onNewProject, onMenu,
 }: Props) {
   const visible = projects.filter(project => !project.isArchived && !project.isDeleted)
-  const groups = [{ id: null, name: 'Inbox', project: null }, ...visible.map(project => ({ id: project.id, name: project.name, project }))]
+  const groups = visible.map(project => ({ id: project.id, name: project.name, project }))
 
   return <aside className="quick-project-picker" aria-label="Projetos e notas">
     <header className="quick-project-header"><span>Projetos</span><button className="quick-project-add" title="Novo projeto" aria-label="Novo projeto" onClick={onNewProject}><Plus size={20}/></button></header>
     <div className="quick-project-list">
       {groups.map(group => {
-        const key = group.id ?? 'inbox'
+        const key = group.id
         const isExpanded = expanded.has(key)
         const groupNotes = notesByGroup[key] ?? []
         return <div className="quick-project-group" key={key}>
           <div className="quick-project-heading">
-            <button className="quick-project-row" type="button" aria-expanded={isExpanded} aria-current={selectedId === group.id ? 'true' : undefined} onClick={() => onToggle(group.id)} onContextMenu={event => { if (group.project) { event.preventDefault(); onMenu(group.project,event.clientX,event.clientY) } }}>
-              {group.project ? <ProjectIcon name={group.project.icon} size={24}/> : <Inbox size={21}/>}
+            <button className="quick-project-row" type="button" aria-expanded={isExpanded} aria-current={selectedId === group.id ? 'true' : undefined} onClick={() => onToggle(group.id)} onContextMenu={event => { event.preventDefault(); onMenu(group.project,event.clientX,event.clientY) }}>
+              <ProjectIcon name={group.project.icon} size={24}/>
               <span>{group.name}</span><ChevronDown className="quick-project-chevron" size={16}/>
             </button>
             <button className="quick-project-note-add" type="button" title={`Nova nota em ${group.name}`} aria-label={`Nova nota em ${group.name}`} onClick={() => onNewNote(group.id)}><Plus size={17}/></button>

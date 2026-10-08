@@ -1,0 +1,120 @@
+/* Motion: quick springs on transform and opacity only, so everything stays on the GPU.
+   Window surfaces never animate their size: the native acrylic behind them is already
+   full size, so only the content inside settles in. */
+:root {
+  --spring: linear(0, 0.048, 0.154, 0.28, 0.407, 0.522, 0.623, 0.706, 0.774, 0.829, 0.871, 0.904, 0.929, 0.948, 0.962, 0.973, 0.981, 0.986, 0.99, 0.993, 0.995, 0.997, 0.998, 0.999, 1);
+  --spring-bouncy: linear(0, 0.082, 0.264, 0.472, 0.67, 0.83, 0.944, 1.018, 1.057, 1.07, 1.068, 1.056, 1.042, 1.027, 1.015, 1.006, 1, 0.997, 0.995, 0.995, 0.996, 0.997, 0.998, 0.999, 1);
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+}
+
+/* Capsule */
+.capsule { transition: opacity .22s var(--ease-out), background .22s var(--ease-out), transform .4s var(--spring-bouncy); }
+.capsule:active { transform: scale(.965); transition-duration: .22s, .22s, .1s; }
+.capsule-name { display: inline-block; transition: transform .4s var(--spring-bouncy); }
+.capsule:hover .capsule-name { transform: translateX(2px); }
+.capsule-toggle svg { transition: transform .4s var(--spring-bouncy); }
+.capsule:hover .capsule-toggle svg { transform: translateY(2px); }
+
+/* Quick panel: the native window springs out of the capsule (native.rs). While it moves,
+   the panel keeps its final size anchored at the top, and the glass surface follows the
+   window edges, so nothing reflows and the acrylic always matches the surface. */
+.app[data-window-motion] { position: relative; }
+.app[data-window-motion]::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  border: 1px solid var(--glass-border); border-radius: 18px; background: var(--glass-surface);
+}
+.app[data-window-motion] .quick-stage {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: var(--motion-width); height: var(--motion-height);
+}
+.app[data-window-motion] .quick-detail, .app[data-window-motion] .quick-favorites,
+.app[data-window-motion] .quick-loading, .app[data-window-motion] .onboarding { background: transparent; border-color: transparent; }
+.app[data-window-motion] .quick-panel { pointer-events: none; }
+.quick-panel { transition: opacity .18s var(--ease-out), transform .36s var(--spring); }
+.app[data-window-motion="closing"] .quick-panel { opacity: 0; transform: translateY(-10px) scale(.98); transition-duration: .1s, .24s; }
+
+/* Content settles in just behind the growing surface. */
+.quick-detail, .quick-favorites, .quick-loading, .onboarding { animation: none; }
+.app-capsule .quick-stage, .app-hidden .quick-stage { visibility: hidden; }
+.app-quick :is(.quick-detail, .quick-favorites, .quick-loading) > * {
+  animation: content-in .3s var(--spring) 40ms backwards;
+}
+.app-quick :is(.quick-detail, .quick-favorites, .quick-loading) > :nth-child(2) { animation-delay: 60ms; }
+.app-quick :is(.quick-detail, .quick-favorites, .quick-loading) > :nth-child(3) { animation-delay: 80ms; }
+.app-quick :is(.quick-detail, .quick-favorites, .quick-loading) > :nth-child(n+4) { animation-delay: 100ms; }
+@keyframes content-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Workspace and dialog windows: same rule, content only. */
+.app-workspace .workspace-titlebar > *, .app-workspace .workspace-shell > * { animation: content-in .36s var(--spring) backwards; }
+.app-workspace .workspace-shell > :nth-child(2) { animation-delay: 30ms; }
+.app-workspace .workspace-shell > :nth-child(n+3) { animation-delay: 60ms; }
+.dialog-window > * { animation: content-in .34s var(--spring) backwards; }
+
+/* Popovers and menus float above the surface, so they can scale out of their anchor. */
+.detail-more-menu, .slash-menu, .context-menu, .palette, .project-actions, .quick-attachments {
+  animation: pop-in .3s var(--spring) backwards;
+  transform-origin: top center;
+}
+.quick-more-menu, .quick-attachments { transform-origin: bottom right; }
+.context-menu { transform-origin: top left; }
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.95); }
+  to { opacity: 1; transform: none; }
+}
+.toast { animation: toast-in .4s var(--spring-bouncy) backwards; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: none; } }
+.palette-backdrop, .project-actions-cover { animation: fade-in .18s var(--ease-out) backwards; }
+@keyframes fade-in { from { opacity: 0; } }
+
+/* Projects panel: its window springs out of the editor edge (native.rs show_projects).
+   Same rule as the quick panel: fixed-size content, surface that follows the window. */
+.projects-window[data-window-motion] { position: relative; }
+.projects-window[data-window-motion]::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  border: 1px solid var(--glass-border); border-radius: 18px; background: rgba(16, 17, 20, .78);
+}
+:root[data-theme="light"] .projects-window[data-window-motion]::before { background: rgba(247, 249, 252, .89); }
+.projects-window[data-window-motion] .quick-project-picker {
+  position: absolute; top: 0; left: 0; width: var(--motion-width); height: var(--motion-height);
+  background: transparent; border-color: transparent; pointer-events: none;
+}
+:root[data-theme="light"] .projects-window[data-window-motion] .quick-project-picker { background: transparent; }
+.projects-window[data-anchor="right"][data-window-motion] .quick-project-picker { left: auto; right: 0; }
+.quick-project-picker { transition: opacity .18s var(--ease-out), transform .3s var(--spring); }
+.projects-window[data-window-motion="closing"] .quick-project-picker { opacity: 0; transform: scale(.97); transition-duration: .1s, .25s; }
+.projects-window[data-window-motion="opening"] .quick-project-picker > * { animation: content-in .28s var(--spring) 30ms backwards; }
+.projects-window[data-window-motion="opening"] .quick-project-picker > :nth-child(2) { animation-delay: 50ms; }
+.projects-window[data-window-motion="opening"] .quick-project-picker > :nth-child(n+3) { animation-delay: 70ms; }
+
+/* Projects picker: rows cascade in, group contents unfold. */
+.quick-project-heading { animation: content-in .34s var(--spring) backwards; }
+.quick-project-list > :nth-child(2) .quick-project-heading { animation-delay: 20ms; }
+.quick-project-list > :nth-child(3) .quick-project-heading { animation-delay: 40ms; }
+.quick-project-list > :nth-child(4) .quick-project-heading { animation-delay: 60ms; }
+.quick-project-list > :nth-child(n+5) .quick-project-heading { animation-delay: 80ms; }
+.quick-project-notes { animation: content-in .3s var(--spring) backwards; }
+.quick-project-chevron { transition: transform .4s var(--spring-bouncy); }
+
+/* Controls: quick color changes, springy press. */
+.icon-button, .footer-tool, .quick-note-add, .tool, .quick-project-trigger, .quick-project-row,
+.quick-project-note, .quick-project-note-add, .quick-project-add, .palette-row, .primary-button,
+.context-menu button, .detail-more-menu button, .workspace-titlebar button, .project-icon-choices button {
+  transition: background-color .15s var(--ease-out), color .15s var(--ease-out), border-color .15s var(--ease-out), transform .4s var(--spring-bouncy);
+}
+.icon-button:active, .footer-tool:active, .quick-note-add:active, .tool:active, .quick-project-add:active,
+.quick-project-note-add:active, .primary-button:active, .project-icon-choices button:active {
+  transform: scale(.9); transition-duration: .15s, .15s, .15s, .1s;
+}
+.quick-project-row:active, .quick-project-note:active, .quick-project-trigger:active, .palette-row:active { transform: scale(.985); transition-duration: .15s, .15s, .15s, .1s; }
+.switch { transition: background-color .2s var(--ease-out), border-color .2s var(--ease-out); }
+.switch span { transition: transform .4s var(--spring-bouncy), background-color .2s var(--ease-out); }
+.saving-dot { animation: breathe 1.2s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .35; transform: scale(.7); } }
+
+:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

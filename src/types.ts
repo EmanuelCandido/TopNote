@@ -1,5 +1,5 @@
 export type Mode = 'capsule' | 'quick' | 'workspace' | 'hidden'
-export type View = 'inbox' | 'favorites' | 'recent' | 'all' | 'archive' | 'trash' | 'project' | 'folder'
+export type View = 'favorites' | 'recent' | 'all' | 'archive' | 'trash' | 'project' | 'folder'
 export type SaveStatus = 'saved' | 'saving' | 'error'
 
 export interface Project {

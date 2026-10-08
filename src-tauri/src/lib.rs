@@ -27,6 +27,13 @@ pub struct AppState {
     mode: Mutex<String>,
     hotkey: Mutex<String>,
     pub(crate) dialog: Mutex<Option<DialogRequest>>,
+    /// Bumped by every mode change; a running window animation stops when it no longer matches.
+    pub(crate) motion: std::sync::atomic::AtomicU64,
+    pub(crate) projects_motion: std::sync::atomic::AtomicU64,
+    /// Number of windows springing right now.
+    pub(crate) animating: std::sync::atomic::AtomicU32,
+    /// Logical rect of the editor's project button, where the projects panel springs from.
+    pub(crate) projects_origin: Mutex<Option<[f64; 4]>>,
 }
 
 impl AppState {
@@ -34,7 +41,7 @@ impl AppState {
         std::fs::create_dir_all(root.join("attachments")).map_err(|e| e.to_string())?;
         std::fs::create_dir_all(root.join("backups")).map_err(|e| e.to_string())?;
         let db_path = root.join("topnote.db");
-        let state = Self {root,db_path,mode:Mutex::new("capsule".into()),hotkey:Mutex::new("Ctrl+Shift+Space".into()),dialog:Mutex::new(None)};
+        let state = Self {root,db_path,mode:Mutex::new("capsule".into()),hotkey:Mutex::new("Ctrl+Shift+Space".into()),dialog:Mutex::new(None),motion:Default::default(),projects_motion:Default::default(),animating:Default::default(),projects_origin:Mutex::new(None)};
         attachments::cleanup_old_drag_files(&state);
         let mut conn = state.connection()?;
         db::migrate(&mut conn).map_err(|e| e.to_string())?;
@@ -81,7 +88,8 @@ pub fn run() {
             let root = app.path().app_local_data_dir()?;
             let state = AppState::new(root).map_err(std::io::Error::other)?;
             app.manage(state);
-            for config in &app.config().app.windows {
+            // The dialog window is created on demand (native::ensure_window) and destroyed on close.
+            for config in app.config().app.windows.iter().filter(|config| config.label != "dialog") {
                 tauri::WebviewWindowBuilder::from_config(app,config)?.build()?;
             }
             native::initialize_windows(app.handle()).map_err(std::io::Error::other)?;
@@ -114,23 +122,24 @@ pub fn run() {
                 })
                 .build(app)?;
             let first_run = app.state::<AppState>().connection()?.query_row("SELECT value FROM settings WHERE key='onboardingDone'",[],|r|r.get::<_,String>(0)).is_err();
-            if first_run { native::set_window_mode(app.handle(),"quick").map_err(std::io::Error::other)?; }
+            if first_run { native::set_window_mode(app.handle(),"quick",false).map_err(std::io::Error::other)?; }
             else {
                 let show = app.state::<AppState>().connection()?.query_row("SELECT value FROM settings WHERE key='showCapsuleAtStart'",[],|r|r.get::<_,String>(0)).unwrap_or_else(|_|"true".into());
-                native::set_window_mode(app.handle(),if show == "false" {"hidden"} else {"capsule"}).map_err(std::io::Error::other)?;
+                native::set_window_mode(app.handle(),if show == "false" {"hidden"} else {"capsule"},false).map_err(std::io::Error::other)?;
             }
             Ok(())
         })
         .on_window_event(|window,event| {
+            let animating = window.state::<AppState>().animating.load(std::sync::atomic::Ordering::SeqCst) > 0;
             if let tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } = event {
+                if animating { return; }
                 if let Err(error) = native::round_window(window) { eprintln!("Cantos da janela: {error}"); }
             }
             if let tauri::WindowEvent::CloseRequested {api,..} = event {
                 api.prevent_close();
                 if window.label() == "dialog" {
-                    let _ = window.hide();
                     if let Ok(mut request) = window.state::<AppState>().dialog.lock() { *request = None; }
-                    let _ = window.emit("topnote:dialog-closed",());
+                    let _ = window.destroy();
                 } else if window.label() == "projects" {
                     let _ = native::hide_projects(window.app_handle());
                 } else {

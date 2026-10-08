@@ -238,7 +238,6 @@ const SUMMARY_SELECT: &str = "SELECT n.id,n.title,substr(n.content_text,1,220),n
 
 pub fn list_notes(conn: &Connection, view: &str, target_id: Option<&str>, offset: i64) -> Result<Vec<NoteSummary>, String> {
     let where_sql = match view {
-        "inbox" => "n.is_deleted=0 AND n.is_archived=0 AND n.project_id IS NULL",
         "all" => "n.is_deleted=0 AND n.is_archived=0",
         "favorites" => "n.is_deleted=0 AND n.is_archived=0 AND n.is_pinned=1",
         "recent" => "n.is_deleted=0 AND n.is_archived=0",

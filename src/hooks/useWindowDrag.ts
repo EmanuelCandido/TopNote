@@ -46,6 +46,8 @@ export function useWindowDrag(canStart?: (target: Element) => boolean) {
       onPointerDown(event: PointerEvent<HTMLElement>) {
         if (event.button !== 0 || (canStart && !canStart(event.target as Element))) return
         moved.current = false
+        // A leftover text selection would turn this gesture into a native text drag.
+        document.getSelection()?.removeAllRanges()
         const window = getCurrentWindow()
         active.current = {x:event.screenX,y:event.screenY,lastX:event.screenX,lastY:event.screenY,origin:Promise.all([window.outerPosition(),window.scaleFactor()]).then(([position,scale]) => ({...position,scale}))}
         event.currentTarget.setPointerCapture(event.pointerId)

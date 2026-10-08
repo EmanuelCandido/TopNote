@@ -2,6 +2,7 @@ import React, { lazy, Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
 import './styles.css'
 import './reference.css'
+import './motion.css'
 
 const isCapsule = new URLSearchParams(window.location.search).has('capsule')
 const isDialog = new URLSearchParams(window.location.search).has('dialog')

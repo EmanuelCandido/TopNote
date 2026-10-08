@@ -1,4 +1,4 @@
-import { Archive, ChevronDown, ChevronRight, Clock3, FileText, Folder, Inbox, Layers3, Plus, Star, Trash2 } from 'lucide-react'
+import { Archive, ChevronDown, ChevronRight, Clock3, FileText, Folder, Layers3, Plus, Star, Trash2 } from 'lucide-react'
 import { isWindowHeader, useWindowDrag } from '../hooks/useWindowDrag'
 import type { Folder as FolderType, Note, Project, View } from '../types'
 import { ProjectIcon } from './ProjectIcon'
@@ -28,7 +28,6 @@ export function Sidebar(props: Props) {
   const drag = useWindowDrag(isWindowHeader)
   const { projects, folders, view, targetId, activeNote, notesRevision, expanded, onToggle, onSelect, onSelectNote, onNewProject, onNewNote, onProjectMenu, onFolderMenu, onMoveNote, onReorderProjects, onReorderFolders } = props
   const sections = [
-    { id: 'inbox' as View, label: 'Inbox', icon: Inbox },
     { id: 'favorites' as View, label: 'Favoritos', icon: Star },
     { id: 'recent' as View, label: 'Recentes', icon: Clock3 },
     { id: 'all' as View, label: 'Todas as notas', icon: Layers3 },
@@ -39,7 +38,7 @@ export function Sidebar(props: Props) {
     <div className="sidebar-brand" {...drag.bind}><FileText size={25} strokeWidth={2.2}/><span>TopNote</span></div>
     <div className="sidebar-section-label">Biblioteca</div>
     <nav aria-label="Biblioteca">
-      {sections.map(item => <button key={item.id} className={`nav-item ${view === item.id ? 'active' : ''}`} onClick={() => onSelect(item.id)} onDragOver={event => event.preventDefault()} onDrop={event => { const id = event.dataTransfer.getData('application/topnote-note'); if (id && item.id === 'inbox') onMoveNote(id,null,null) }}><item.icon size={17} strokeWidth={1.8}/>{item.label}</button>)}
+      {sections.map(item => <button key={item.id} className={`nav-item ${view === item.id ? 'active' : ''}`} onClick={() => onSelect(item.id)}><item.icon size={17} strokeWidth={1.8}/>{item.label}</button>)}
     </nav>
     <div className="sidebar-section-label project-heading"><span>Projetos</span><button title="Novo projeto" aria-label="Novo projeto" onClick={onNewProject}><Plus size={16}/></button></div>
     <nav className="projects-nav" aria-label="Projetos">

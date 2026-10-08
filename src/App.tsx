@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
@@ -20,6 +20,7 @@ import { Settings } from './components/Settings'
 import { ResizeHandles } from './components/ResizeHandles'
 import { useAppearance } from './hooks/useAppearance'
 import { isWindowHeader, useWindowDrag } from './hooks/useWindowDrag'
+import { useWindowMotion } from './hooks/useWindowMotion'
 
 type Dialog = { type: 'project'; project?: Project } | { type: 'folder'; projectId: string; folder?: Folder } | { type: 'versions' } | null
 type ContextMenu = { type: 'note'; note: NoteSummary; x: number; y: number } | { type: 'project'; project: Project; x: number; y: number } | { type: 'folder'; folder: Folder; x: number; y: number } | null
@@ -28,10 +29,28 @@ export default function App() {
   useAppearance()
   const workspaceDrag = useWindowDrag(isWindowHeader)
   const [mode, setModeState] = useState<Mode>('capsule')
+  const windowMotion = useWindowMotion(mode)
+  const motion = windowMotion.motion
+  // The panel stays mounted between openings, so focus the note each time it opens.
+  useEffect(() => {
+    if (mode !== 'quick' || motion.phase !== 'idle') return
+    const timer = setTimeout(() => {
+      const editor = document.querySelector<HTMLElement>('.quick-panel .ProseMirror')
+      const active = document.activeElement
+      if (!editor || editor.contains(active) || active?.matches('input, textarea, select')) return
+      editor.focus()
+      const range = document.createRange()
+      range.selectNodeContents(editor)
+      range.collapse(false)
+      document.getSelection()?.removeAllRanges()
+      document.getSelection()?.addRange(range)
+    }, 20)
+    return () => clearTimeout(timer)
+  }, [mode, motion.phase])
   const [page, setPage] = useState<'notes' | 'settings'>('notes')
   const [projects, setProjects] = useState<Project[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
-  const [view, setView] = useState<View>('inbox')
+  const [view, setView] = useState<View>('all')
   const [targetId, setTargetId] = useState<string | null>(null)
   const [notes, setNotes] = useState<NoteSummary[]>([])
   const [notesRevision, setNotesRevision] = useState(0)
@@ -85,16 +104,16 @@ export default function App() {
 
   useEffect(() => {
     let active = true
-    void Promise.all([api.settings(),api.projects(),api.folders(),api.notes('inbox',null,0),api.dataDirectory(),api.mode()]).then(async ([preferences,allProjects,allFolders,inbox,path,currentMode]) => {
+    void Promise.all([api.settings(),api.projects(),api.folders(),api.notes('all',null,0),api.dataDirectory(),api.mode()]).then(async ([preferences,allProjects,allFolders,allNotes,path,currentMode]) => {
       let previous: Note | null = null
-      for (const id of [...new Set([preferences.lastNoteId,inbox[0]?.id].filter((id): id is string => Boolean(id)))]) {
+      for (const id of [...new Set([preferences.lastNoteId,allNotes[0]?.id].filter((id): id is string => Boolean(id)))]) {
         const candidate = await api.note(id).catch(() => null)
         if (candidate && !candidate.isDeleted && !candidate.isArchived) { previous = candidate; break }
       }
-      const previousView: View = previous?.folderId ? 'folder' : previous?.projectId ? 'project' : 'inbox'
+      const previousView: View = previous?.folderId ? 'folder' : previous?.projectId ? 'project' : 'all'
       const previousTarget = previous?.folderId ?? previous?.projectId ?? null
       const [initialNotes,initialTags,initialFiles] = await Promise.all([
-        previousView === 'inbox' ? Promise.resolve(inbox) : api.notes(previousView,previousTarget),
+        previousView === 'all' ? Promise.resolve(allNotes) : api.notes(previousView,previousTarget),
         previous ? api.tags(previous.id) : Promise.resolve([]),
         previous ? api.attachments(previous.id) : Promise.resolve([]),
       ])
@@ -140,10 +159,11 @@ export default function App() {
         listen('topnote:quit-requested', () => { void autosave.flush().then(ok => { if (ok) void api.quit() }) }),
         getCurrentWindow().onResized(event => {
           const currentMode = modeRef.current
-          if (currentMode !== 'quick' && currentMode !== 'workspace') return
           clearTimeout(resizeTimer)
+          if (currentMode !== 'quick' && currentMode !== 'workspace') return
+          if (windowMotion.ref.current.phase !== 'idle') return
           resizeTimer = setTimeout(() => {
-            if (modeRef.current !== currentMode) return
+            if (modeRef.current !== currentMode || windowMotion.ref.current.phase !== 'idle') return
             void getCurrentWindow().scaleFactor().then(scale => {
               const width = Math.round(event.payload.width / scale)
               const height = Math.round(event.payload.height / scale)
@@ -264,12 +284,12 @@ export default function App() {
       setNote(loaded); setTags(labels); setAttachments(files); setSaveStatus('saved'); setQuickFavorites(false)
     } catch (failure) { showError(failure) }
   }
-  async function createNote(inbox = false, explicitProjectId?: string | null) {
+  async function createNote(unfiled = false, explicitProjectId?: string | null) {
     if (creatingNoteRef.current) return
     creatingNoteRef.current = true
     try {
       if (!(await autosave.flush())) return
-      const context = explicitProjectId !== undefined ? {projectId:explicitProjectId,folderId:null} : inbox ? { projectId:null,folderId:null } : viewRef.current.view === 'project' ? {projectId:viewRef.current.targetId,folderId:null} : viewRef.current.view === 'folder' ? {projectId:folders.find(f => f.id === viewRef.current.targetId)?.projectId ?? null,folderId:viewRef.current.targetId} : {projectId:null,folderId:null}
+      const context = explicitProjectId !== undefined ? {projectId:explicitProjectId,folderId:null} : unfiled ? { projectId:null,folderId:null } : viewRef.current.view === 'project' ? {projectId:viewRef.current.targetId,folderId:null} : viewRef.current.view === 'folder' ? {projectId:folders.find(f => f.id === viewRef.current.targetId)?.projectId ?? null,folderId:viewRef.current.targetId} : {projectId:null,folderId:null}
       const created = await api.newNote(context.projectId,context.folderId)
       noteRef.current = created
       setNote(created); setTags([]); setAttachments([]); setSaveStatus('saved'); setQuickFavorites(false)
@@ -280,6 +300,8 @@ export default function App() {
   }
   async function setMode(next: Mode) {
     if (!(await autosave.flush())) return
+    // Keep the panel mounted while the native window folds back into the capsule.
+    if (modeRef.current === 'quick' && next === 'capsule' && document.documentElement.dataset.motion !== 'reduced') windowMotion.begin('closing')
     try { await api.setMode(next); modeRef.current = next; setModeState(next) }
     catch (failure) { showError(failure) }
   }
@@ -287,7 +309,11 @@ export default function App() {
     if (modeRef.current !== 'quick') return
     const next = !quickProjectsOpenRef.current
     try {
-      if (next) await api.showProjects(noteRef.current?.projectId ?? null)
+      if (next) {
+        // The panel springs out of (and later folds back into) the project button.
+        const trigger = document.querySelector('.quick-project-trigger')?.getBoundingClientRect()
+        await api.showProjects(noteRef.current?.projectId ?? null, trigger ? [trigger.x, trigger.y, trigger.width, trigger.height] : null)
+      }
       else await api.hideProjects()
     } catch (failure) {
       showError(failure)
@@ -297,7 +323,7 @@ export default function App() {
     if (!(await autosave.flush())) return
     favoritesRequestRef.current = true
     try {
-      const nextView = id ? 'project' : 'inbox'
+      const nextView = id ? 'project' : 'all'
       await selectView(nextView,id)
       const choices = await api.notes(nextView,id)
       if (choices.length) await openNote(choices[0].id)
@@ -310,7 +336,7 @@ export default function App() {
     if (!(await autosave.flush())) return
     favoritesRequestRef.current = true
     try {
-      await selectView(projectId ? 'project' : 'inbox',projectId)
+      await selectView(projectId ? 'project' : 'all',projectId)
       await openNote(noteId)
       await api.hideProjects()
       await getCurrentWindow().setFocus()
@@ -320,7 +346,7 @@ export default function App() {
     if (!(await autosave.flush())) return
     favoritesRequestRef.current = true
     try {
-      await selectView(projectId ? 'project' : 'inbox',projectId)
+      await selectView(projectId ? 'project' : 'all',projectId)
       await createNote(false,projectId)
       await api.hideProjects()
       await getCurrentWindow().setFocus()
@@ -403,11 +429,11 @@ export default function App() {
     if (isNew) await selectView('folder',id)
   }
   async function projectAction(id: string, action: string) {
-    try { await api.projectState(id,action); setProjects(await api.projects()); await emit('topnote:projects-changed'); setContextMenu(null); if (targetId === id) await selectView('inbox') }
+    try { await api.projectState(id,action); setProjects(await api.projects()); await emit('topnote:projects-changed'); setContextMenu(null); if (targetId === id) await selectView('all') }
     catch (failure) { showError(failure) }
   }
   async function folderAction(id: string, deleted: boolean) {
-    try { await api.folderState(id,deleted); setFolders(await api.folders()); setContextMenu(null); if (targetId === id) await selectView('inbox') }
+    try { await api.folderState(id,deleted); setFolders(await api.folders()); setContextMenu(null); if (targetId === id) await selectView('all') }
     catch (failure) { showError(failure) }
   }
   async function moveNote(id: string, projectId: string | null, folderId: string | null) {
@@ -560,7 +586,7 @@ export default function App() {
     } catch (failure) { showError(failure) }
   }
 
-  const title = view === 'project' ? projects.find(p => p.id === targetId)?.name ?? 'Projeto' : view === 'folder' ? folders.find(f => f.id === targetId)?.name ?? 'Pasta' : ({inbox:'Inbox',favorites:'Favoritos',recent:'Recentes',all:'Todas as notas',archive:'Arquivo',trash:'Lixeira'} as Record<string,string>)[view]
+  const title = view === 'project' ? projects.find(p => p.id === targetId)?.name ?? 'Projeto' : view === 'folder' ? folders.find(f => f.id === targetId)?.name ?? 'Pasta' : ({favorites:'Favoritos',recent:'Recentes',all:'Todas as notas',archive:'Arquivo',trash:'Lixeira'} as Record<string,string>)[view]
   const paletteCommands: PaletteCommand[] = [
     {label:'Nova nota',detail:'Ctrl + N',icon:FilePlus2,run:() => modeRef.current === 'quick' ? createQuickNote(noteRef.current?.projectId ?? null) : createNote()},
     {label:'Novo projeto',detail:'Ctrl + Shift + N',icon:FolderPlus,run:() => setDialog({type:'project'})},
@@ -576,9 +602,11 @@ export default function App() {
 
   const detailProps = note ? { note, projects, folders, tags, attachments, status:saveStatus, onUpdate:updateNote, onFiles:importFiles, onPick:pickFiles, onTags:setNoteTags, onRemoveAttachment:removeAttachment, onState:(action:string) => noteAction(note.id,action), onWorkspace:() => { void openWorkspace() }, onCapsule:() => { void setMode('capsule') }, onSearch:() => setPalette('all'), onSettings:() => { void openSettings() }, onVersions:() => { void showVersions() }, onExport:() => { void exportNote(note.id) }, onRetry:() => { void autosave.flush() } } : null
 
-  return <div className={`app app-${mode}`}>
-    {(mode === 'quick' || mode === 'workspace') && <ResizeHandles minWidth={mode === 'workspace' ? 780 : 420} minHeight={mode === 'workspace' ? 520 : 340}/>}
-    {mode === 'quick' && <div className="quick-stage"><div className="quick-panel">{onboarding ? <Onboarding onFinish={finishOnboarding}/> : quickFavorites ? <div className="quick-favorites"><div className="quick-favorites-head"><button className="icon-button" onClick={() => setQuickFavorites(false)}><ArrowLeft size={18}/></button><Star size={17}/>Favoritos<button className="icon-button quick-favorites-close" onClick={() => { void setMode('capsule') }}><X size={18}/></button></div><div className="quick-favorites-list">{favoriteNotes.length === 0 ? <div className="quick-favorites-empty">Nenhuma nota fixada ainda.</div> : favoriteNotes.map(item => <button key={item.id} onClick={() => { void openNote(item.id) }}><strong>{item.title || 'Sem título'}</strong><span>{item.preview || formatDate(item.updatedAt)}</span></button>)}</div><button className="quick-favorites-workspace" onClick={() => { void openWorkspace() }}>Abrir Workspace</button></div> : detailProps ? <NoteDetail {...detailProps} compact projectsOpen={quickProjectsOpen} onToggleProjects={() => { void toggleQuickProjects() }} onNewQuickNote={() => { void createQuickNote(noteRef.current?.projectId ?? null).catch(showError) }}/> : <div className="quick-loading"><BrandIcon/><p>{loading ? 'Carregando…' : 'Preparando nota…'}</p><button className="primary-button" onClick={() => { void createNote(true) }}>Nova nota</button></div>}</div></div>}
+  const shownMode: Mode = motion.phase === 'closing' && mode === 'capsule' ? 'quick' : mode
+  const motionStyle = motion.phase === 'idle' ? undefined : { '--motion-width': `${motion.width}px`, '--motion-height': `${motion.height}px` } as CSSProperties
+  return <div className={`app app-${shownMode}`} data-window-motion={motion.phase === 'idle' ? undefined : motion.phase} style={motionStyle}>
+    {motion.phase === 'idle' && (mode === 'quick' || mode === 'workspace') && <ResizeHandles minWidth={mode === 'workspace' ? 780 : 420} minHeight={mode === 'workspace' ? 520 : 340}/>}
+    {(shownMode === 'quick' || shownMode === 'capsule' || shownMode === 'hidden') && <div className="quick-stage"><div className="quick-panel">{onboarding ? <Onboarding onFinish={finishOnboarding}/> : quickFavorites ? <div className="quick-favorites"><div className="quick-favorites-head"><button className="icon-button" onClick={() => setQuickFavorites(false)}><ArrowLeft size={18}/></button><Star size={17}/>Favoritos<button className="icon-button quick-favorites-close" onClick={() => { void setMode('capsule') }}><X size={18}/></button></div><div className="quick-favorites-list">{favoriteNotes.length === 0 ? <div className="quick-favorites-empty">Nenhuma nota fixada ainda.</div> : favoriteNotes.map(item => <button key={item.id} onClick={() => { void openNote(item.id) }}><strong>{item.title || 'Sem título'}</strong><span>{item.preview || formatDate(item.updatedAt)}</span></button>)}</div><button className="quick-favorites-workspace" onClick={() => { void openWorkspace() }}>Abrir Workspace</button></div> : detailProps ? <NoteDetail {...detailProps} compact projectsOpen={quickProjectsOpen} onToggleProjects={() => { void toggleQuickProjects() }} onNewQuickNote={() => { void createQuickNote(noteRef.current?.projectId ?? null).catch(showError) }}/> : <div className="quick-loading"><BrandIcon/><p>{loading ? 'Carregando…' : 'Preparando nota…'}</p><button className="primary-button" onClick={() => { void createNote(true) }}>Nova nota</button></div>}</div></div>}
     {mode === 'workspace' && <header className="workspace-titlebar" {...workspaceDrag.bind}><span><FileText size={16}/>TopNote · Workspace</span><button onClick={() => { void setMode('capsule') }}><ChevronUp size={16}/> Recolher</button></header>}
     {mode === 'workspace' && <div className="workspace-shell"><Sidebar projects={projects} folders={folders} view={view} targetId={targetId} expanded={expanded} onToggle={id => setExpanded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })} onSelect={(next,target) => { setPage('notes'); void selectView(next,target ?? null) }} onNewProject={() => setDialog({type:'project'})} activeNote={note} notesRevision={notesRevision} onSelectNote={(noteId,projectId) => { void openSidebarProjectNote(noteId,projectId) }} onNewNote={projectId => { void createWorkspaceProjectNote(projectId) }} onProjectMenu={(project,x,y) => setContextMenu({type:'project',project,x,y})} onFolderMenu={(folder,x,y) => setContextMenu({type:'folder',folder,x,y})} onMoveNote={(id,projectId,folderId) => { void moveNote(id,projectId,folderId) }} onReorderProjects={(source,target) => { void reorderProjects(source,target) }} onReorderFolders={(source,target) => { void reorderFolders(source,target) }}/>
       {page === 'settings' ? <Settings settings={settings} dataPath={dataPath} onSet={setSetting} onBackup={backup} onRestore={restore} onBack={() => setPage('notes')}/> : <><NoteList title={title} view={view} notes={notes} selectedId={note?.id ?? null} loading={loading} onSelect={id => { void openNote(id) }} onNew={() => { void createNote() }} onSearch={() => setPalette('all')} onMenu={(item,x,y) => setContextMenu({type:'note',note:item,x,y})} onEmptyTrash={() => { if (window.confirm('Excluir permanentemente todas as notas da lixeira?')) void api.emptyTrash().then(() => loadNotes()).catch(showError) }} onLoadMore={() => { void loadMore() }}/>{detailProps ? <NoteDetail {...detailProps} compact={false}/> : <div className="workspace-empty"><div className="workspace-empty-art"><BrandIcon/></div><div className="eyebrow">Seu espaço de ideias</div><h2>Suas notas, em foco.</h2><p>Selecione uma nota na lista ou crie uma nova para começar.</p><button className="primary-button" onClick={() => { void createNote() }}><Plus size={16}/>Nova nota</button><div className="empty-shortcut"><Keyboard size={14}/>Ctrl + Shift + Space para capturar rapidamente</div></div>}</>}
@@ -588,7 +616,7 @@ export default function App() {
 
 
     {contextMenu && <div className="context-cover" onClick={() => setContextMenu(null)} onContextMenu={event => { event.preventDefault(); setContextMenu(null) }}><div className="context-menu" style={{left:Math.min(contextMenu.x,window.innerWidth-210),top:Math.min(contextMenu.y,window.innerHeight-330)}} onClick={event => event.stopPropagation()}>
-      {contextMenu.type === 'note' ? <><button onClick={() => { void openNote(contextMenu.note.id); setContextMenu(null) }}>Abrir</button><button onClick={() => { void noteAction(contextMenu.note.id,contextMenu.note.isPinned ? 'unpin' : 'pin') }}>{contextMenu.note.isPinned ? 'Desafixar' : 'Fixar'}</button>{!contextMenu.note.isDeleted && <><div className="context-label">Mover para</div><button onClick={() => { void moveNote(contextMenu.note.id,null,null); setContextMenu(null) }}>Inbox</button>{projects.filter(p => !p.isDeleted && !p.isArchived).map(project => <button key={project.id} onClick={() => { void moveNote(contextMenu.note.id,project.id,null); setContextMenu(null) }}>{project.name}</button>)}</>}<button onClick={() => { void duplicateNote(contextMenu.note.id) }}>Duplicar</button><button onClick={() => { void exportNote(contextMenu.note.id); setContextMenu(null) }}>Exportar</button>{contextMenu.note.isDeleted ? <><button onClick={() => { void noteAction(contextMenu.note.id,'restore') }}>Restaurar</button><button className="danger" onClick={() => { if (window.confirm('Excluir esta nota permanentemente?')) void noteAction(contextMenu.note.id,'permanent') }}>Excluir permanentemente</button></> : <><button onClick={() => { void noteAction(contextMenu.note.id,contextMenu.note.isArchived ? 'unarchive' : 'archive') }}>{contextMenu.note.isArchived ? 'Desarquivar' : 'Arquivar'}</button><button className="danger" onClick={() => { void noteAction(contextMenu.note.id,'delete') }}>Mover para lixeira</button></>}</> : contextMenu.type === 'project' ? <><button onClick={() => { setDialog({type:'folder',projectId:contextMenu.project.id}); setContextMenu(null) }}>Nova pasta</button><button onClick={() => { setDialog({type:'project',project:contextMenu.project}); setContextMenu(null) }}>Editar projeto</button><button onClick={() => { void exportProject(contextMenu.project) }}>Exportar projeto</button>{contextMenu.project.isArchived && !contextMenu.project.isDeleted ? <button onClick={() => { void projectAction(contextMenu.project.id,'unarchive') }}>Desarquivar</button> : !contextMenu.project.isDeleted && <button onClick={() => { void projectAction(contextMenu.project.id,'archive') }}>Arquivar</button>}{contextMenu.project.isDeleted ? <button onClick={() => { void projectAction(contextMenu.project.id,'restore') }}>Restaurar</button> : <button className="danger" onClick={() => { void projectAction(contextMenu.project.id,'delete') }}>Excluir</button>}</> : <><button onClick={() => { setDialog({type:'folder',projectId:contextMenu.folder.projectId,folder:contextMenu.folder}); setContextMenu(null) }}>Renomear pasta</button><button className="danger" onClick={() => { void folderAction(contextMenu.folder.id,true) }}>Excluir pasta</button></>}
+      {contextMenu.type === 'note' ? <><button onClick={() => { void openNote(contextMenu.note.id); setContextMenu(null) }}>Abrir</button><button onClick={() => { void noteAction(contextMenu.note.id,contextMenu.note.isPinned ? 'unpin' : 'pin') }}>{contextMenu.note.isPinned ? 'Desafixar' : 'Fixar'}</button>{!contextMenu.note.isDeleted && <><div className="context-label">Mover para</div><button onClick={() => { void moveNote(contextMenu.note.id,null,null); setContextMenu(null) }}>Sem projeto</button>{projects.filter(p => !p.isDeleted && !p.isArchived).map(project => <button key={project.id} onClick={() => { void moveNote(contextMenu.note.id,project.id,null); setContextMenu(null) }}>{project.name}</button>)}</>}<button onClick={() => { void duplicateNote(contextMenu.note.id) }}>Duplicar</button><button onClick={() => { void exportNote(contextMenu.note.id); setContextMenu(null) }}>Exportar</button>{contextMenu.note.isDeleted ? <><button onClick={() => { void noteAction(contextMenu.note.id,'restore') }}>Restaurar</button><button className="danger" onClick={() => { if (window.confirm('Excluir esta nota permanentemente?')) void noteAction(contextMenu.note.id,'permanent') }}>Excluir permanentemente</button></> : <><button onClick={() => { void noteAction(contextMenu.note.id,contextMenu.note.isArchived ? 'unarchive' : 'archive') }}>{contextMenu.note.isArchived ? 'Desarquivar' : 'Arquivar'}</button><button className="danger" onClick={() => { void noteAction(contextMenu.note.id,'delete') }}>Mover para lixeira</button></>}</> : contextMenu.type === 'project' ? <><button onClick={() => { setDialog({type:'folder',projectId:contextMenu.project.id}); setContextMenu(null) }}>Nova pasta</button><button onClick={() => { setDialog({type:'project',project:contextMenu.project}); setContextMenu(null) }}>Editar projeto</button><button onClick={() => { void exportProject(contextMenu.project) }}>Exportar projeto</button>{contextMenu.project.isArchived && !contextMenu.project.isDeleted ? <button onClick={() => { void projectAction(contextMenu.project.id,'unarchive') }}>Desarquivar</button> : !contextMenu.project.isDeleted && <button onClick={() => { void projectAction(contextMenu.project.id,'archive') }}>Arquivar</button>}{contextMenu.project.isDeleted ? <button onClick={() => { void projectAction(contextMenu.project.id,'restore') }}>Restaurar</button> : <button className="danger" onClick={() => { void projectAction(contextMenu.project.id,'delete') }}>Excluir</button>}</> : <><button onClick={() => { setDialog({type:'folder',projectId:contextMenu.folder.projectId,folder:contextMenu.folder}); setContextMenu(null) }}>Renomear pasta</button><button className="danger" onClick={() => { void folderAction(contextMenu.folder.id,true) }}>Excluir pasta</button></>}
     </div></div>}
     {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => { void autosave.flush(); setError('') }}>Tentar novamente</button><button aria-label="Fechar erro" onClick={() => setError('')}><X size={16}/></button></div>}
     {toast && <div className="toast" role="status">{toast}</div>}

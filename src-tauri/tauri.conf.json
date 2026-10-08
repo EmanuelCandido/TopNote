@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site --renderer-process-limit=1 --disable-background-networking --disable-component-update --disable-domain-reliability --no-pings",
         "title": "TopNote",
         "width": 660,
         "height": 638,
@@ -29,6 +30,7 @@
       },
       {
         "label": "capsule",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site --renderer-process-limit=1 --disable-background-networking --disable-component-update --disable-domain-reliability --no-pings",
         "title": "TopNote",
         "url": "index.html?capsule=1",
         "width": 240,
@@ -46,6 +48,7 @@
       },
       {
         "label": "dialog",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site --renderer-process-limit=1 --disable-background-networking --disable-component-update --disable-domain-reliability --no-pings",
         "title": "TopNote",
         "url": "index.html?dialog=1",
         "width": 540,
@@ -63,6 +66,7 @@
       },
       {
         "label": "projects",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site --renderer-process-limit=1 --disable-background-networking --disable-component-update --disable-domain-reliability --no-pings",
         "title": "TopNote · Projetos",
         "url": "index.html?projects=1",
         "width": 231,

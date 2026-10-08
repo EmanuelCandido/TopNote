@@ -39,7 +39,7 @@ export const api = {
   importText: (path: string, projectId: string | null) => invoke<Note>('import_text_note', { path, projectId }),
   setMode: (mode: string) => invoke<void>('set_window_mode', { mode }),
   mode: () => invoke<Mode>('get_window_mode'),
-  showProjects: (selectedId: string | null) => invoke<void>('show_projects', {selectedId}),
+  showProjects: (selectedId: string | null, origin: [number, number, number, number] | null = null) => invoke<void>('show_projects', {selectedId, origin}),
   hideProjects: () => invoke<void>('hide_projects'),
   isAppFocused: () => invoke<boolean>('is_app_focused'),
   showDialog: (kind: 'project' | 'folder' | 'versions', id?: string, projectId?: string) => invoke<void>('show_dialog', { kind, id: id ?? null, projectId: projectId ?? null }),

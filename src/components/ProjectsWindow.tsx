@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { emitTo, listen } from '@tauri-apps/api/event'
 import { isWindowHeader, useWindowDrag } from '../hooks/useWindowDrag'
 import type { NoteSummary, Project } from '../types'
 import { api } from '../services/api'
 import { useAppearance } from '../hooks/useAppearance'
+import { useWindowMotion } from '../hooks/useWindowMotion'
 import { QuickProjectPicker } from './QuickProjectPicker'
 import { ResizeHandles } from './ResizeHandles'
 
 export function ProjectsWindow() {
   useAppearance()
+  const { motion } = useWindowMotion('quick')
   const drag = useWindowDrag(target => !!target.closest('.quick-project-header') && isWindowHeader(target))
   const [projects,setProjects] = useState<Project[]>([])
   const [selectedId,setSelectedId] = useState<string | null>(null)
@@ -20,12 +22,12 @@ export function ProjectsWindow() {
   const [context,setContext] = useState<Project | null>(null)
   const generation = useRef(0)
   const fail = (failure: unknown) => setError(String(failure))
-  async function loadGroup(id: string | null, offset = 0) {
-    const key = id ?? 'inbox'
+  async function loadGroup(id: string, offset = 0) {
+    const key = id
     const currentGeneration = generation.current
     setLoading(current => new Set(current).add(key))
     try {
-      const page = await api.notes(id ? 'project' : 'inbox',id,offset)
+      const page = await api.notes('project',id,offset)
       if (currentGeneration !== generation.current) return
       setNotesByGroup(current => ({...current,[key]:offset ? [...(current[key] ?? []),...page] : page}))
       setHasMore(current => ({...current,[key]:page.length === 200}))
@@ -45,14 +47,14 @@ export function ProjectsWindow() {
           const id = event.payload
           generation.current++
           setSelectedId(id)
-          setExpanded(new Set([id ?? 'inbox']))
+          setExpanded(new Set(id ? [id] : []))
           setNotesByGroup({})
           setHasMore({})
           setLoading(new Set())
           setContext(null)
           setError('')
           refresh()
-          void loadGroup(id)
+          if (id) void loadGroup(id)
         }),
         listen('topnote:project-saved',refresh),
         listen('topnote:projects-changed',refresh),
@@ -65,7 +67,8 @@ export function ProjectsWindow() {
     return () => { active = false; generation.current++; stops.forEach(stop => stop()); window.removeEventListener('keydown',escape) }
   }, [])
   function toggle(id: string | null) {
-    const key = id ?? 'inbox'
+    if (!id) return
+    const key = id
     const shouldOpen = !expanded.has(key)
     setExpanded(current => { const next = new Set(current); if (shouldOpen) next.add(key); else next.delete(key); return next })
     if (shouldOpen && !notesByGroup[key] && !loading.has(key)) void loadGroup(id)
@@ -78,9 +81,11 @@ export function ProjectsWindow() {
     try { await emitTo('main','topnote:quick-note-new',id); await api.hideProjects() }
     catch (failure) { fail(failure) }
   }
-  return <div className="projects-window" {...drag.bind}>
-    <ResizeHandles minWidth={210} minHeight={240}/>
-    <QuickProjectPicker projects={projects} selectedId={selectedId} expanded={expanded} notesByGroup={notesByGroup} loading={loading} hasMore={hasMore} onToggle={toggle} onOpenNote={note => { void openNote(note) }} onNewNote={id => { void newNote(id) }} onLoadMore={id => { void loadGroup(id,notesByGroup[id ?? 'inbox']?.length ?? 0) }} onNewProject={() => { void api.showDialog('project').catch(fail) }} onMenu={project => setContext(project)}/>
+  const moving = motion.phase !== 'idle'
+  return <div className="projects-window" {...drag.bind} data-window-motion={moving ? motion.phase : undefined} data-anchor={motion.anchor}
+    style={moving ? { '--motion-width': `${motion.width}px`, '--motion-height': `${motion.height}px` } as CSSProperties : undefined}>
+    {!moving && <ResizeHandles minWidth={210} minHeight={240}/>}
+    <QuickProjectPicker projects={projects} selectedId={selectedId} expanded={expanded} notesByGroup={notesByGroup} loading={loading} hasMore={hasMore} onToggle={toggle} onOpenNote={note => { void openNote(note) }} onNewNote={id => { void newNote(id) }} onLoadMore={id => { if (id) void loadGroup(id,notesByGroup[id]?.length ?? 0) }} onNewProject={() => { void api.showDialog('project').catch(fail) }} onMenu={project => setContext(project)}/>
     {context && <div className="project-actions-cover" onClick={() => setContext(null)}><div className="project-actions"><button onClick={() => { void api.showDialog('project',context.id).catch(fail); setContext(null) }}>Editar projeto</button><button onClick={() => { if (!expanded.has(context.id)) toggle(context.id); setContext(null) }}>Mostrar notas</button></div></div>}
     {error && <div className="dialog-error" role="alert">{error}</div>}
   </div>

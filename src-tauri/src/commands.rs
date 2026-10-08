@@ -221,7 +221,7 @@ pub fn import_text_note(state: State<'_, AppState>, path: String, project_id: Op
     repo::save_note(&mut conn, repo::NotePatch { id:note.id,title,content_json,content_text:text,project_id,folder_id:None })
 }
 #[tauri::command]
-pub fn set_window_mode(app: AppHandle, mode: String) -> Result<(), String> { native::set_window_mode(&app, &mode) }
+pub fn set_window_mode(app: AppHandle, mode: String) -> Result<(), String> { native::set_window_mode(&app, &mode, true) }
 #[tauri::command]
 pub fn get_window_mode(state: State<'_, AppState>) -> Result<String, String> { state.mode.lock().map(|mode| mode.clone()).map_err(|e| e.to_string()) }
 #[tauri::command]
@@ -234,14 +234,15 @@ pub fn set_capsule_active(window: tauri::WebviewWindow, state: State<'_, AppStat
     Ok(())
 }
 #[tauri::command]
-pub fn show_dialog(app: AppHandle, state: State<'_, AppState>, kind: String, id: Option<String>, project_id: Option<String>) -> Result<(), String> {
+pub async fn show_dialog(app: AppHandle, state: State<'_, AppState>, kind: String, id: Option<String>, project_id: Option<String>) -> Result<(), String> {
     let (width, height) = match kind.as_str() {
         "project" => (540.0_f64, 700.0_f64),
         "folder" if project_id.is_some() => (460.0, 330.0),
         "versions" if id.is_some() => (560.0, 520.0),
         _ => return Err("Janela de edição inválida.".into()),
     };
-    let window = app.get_webview_window("dialog").ok_or("Janela de edição não encontrada.")?;
+    // Built off the main thread: async commands may create windows without blocking the event loop.
+    let window = native::ensure_window(&app, "dialog")?;
     let owner = app.get_webview_window("main").ok_or("Editor não encontrado.")?;
     let monitor = owner.current_monitor().map_err(|e| e.to_string())?.or(window.primary_monitor().map_err(|e| e.to_string())?);
     let (width, height) = if let Some(monitor) = &monitor {
@@ -277,14 +278,12 @@ pub fn get_dialog_request(state: State<'_, AppState>) -> Result<Option<DialogReq
 }
 #[tauri::command]
 pub fn hide_dialog(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let window = app.get_webview_window("dialog").ok_or("Janela de edição não encontrada.")?;
-    window.hide().map_err(|e| e.to_string())?;
     *state.dialog.lock().map_err(|e| e.to_string())? = None;
-    app.emit_to("dialog","topnote:dialog-closed",()).map_err(|e| e.to_string())?;
+    if let Some(window) = app.get_webview_window("dialog") { window.destroy().map_err(|e| e.to_string())?; }
     Ok(())
 }
 #[tauri::command]
-pub fn show_projects(app: AppHandle, selected_id: Option<String>) -> Result<(), String> { native::show_projects(&app,selected_id) }
+pub fn show_projects(app: AppHandle, selected_id: Option<String>, origin: Option<[f64; 4]>) -> Result<(), String> { native::show_projects(&app,selected_id,origin) }
 #[tauri::command]
 pub fn hide_projects(app: AppHandle) -> Result<(), String> { native::hide_projects(&app) }
 #[tauri::command]

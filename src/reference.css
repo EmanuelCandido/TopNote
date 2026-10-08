@@ -25,6 +25,10 @@
   --glass-side: linear-gradient(145deg, rgba(244, 248, 255, calc(var(--glass-opacity) + .10)), rgba(233, 240, 252, var(--glass-opacity)));
 }
 button, input, textarea { -webkit-tap-highlight-color: transparent; }
+/* Window drag areas: no text selection, so a press always moves the window. */
+.detail-header, .detail-header button, .quick-project-header, .workspace-titlebar, .sidebar-brand,
+.dialog-window .form-modal-head { -webkit-user-select: none; user-select: none; }
+
 
 /* The complete capsule is one click target; its contents never capture a drag. */
 .capsule {
