@@ -24,11 +24,7 @@
   · <a href="https://github.com/EmanuelCandido/TopNote/issues">Suporte</a>
 </p>
 
-<p align="center">
-  <a href="docs/TopNote.mp4"><img src="docs/TopNote.png" alt="TopNote funcionando no Windows: captura rápida, projetos, busca e Workspace" width="860" /></a>
-  <br />
-  <a href="docs/TopNote.mp4"><strong>▶ Assistir ao vídeo (1 min 20 s)</strong></a>
-</p>
+https://github.com/user-attachments/assets/10214b6d-a02f-4c02-a6e4-a91fd7b529e8
 
 ## Anotar não deveria custar o seu foco
 
@@ -136,7 +132,7 @@ Para gerar o executável e o instalador NSIS, execute `npm run desktop:build` na
 | [`src/`](src/) | Interface, editor, componentes, estilos e animações |
 | [`src-tauri/`](src-tauri/) | Aplicativo nativo, janelas, banco, anexos e backup |
 | [`releases/`](releases/) | Instaladores compartilháveis |
-| [`docs/`](docs/) | Vídeo de demonstração e capa |
+| [`docs/`](docs/) | Filme de apresentação do TopNote |
 
 ## Suporte e contribuição
 
