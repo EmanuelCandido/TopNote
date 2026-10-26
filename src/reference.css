@@ -30,25 +30,6 @@ button, input, textarea { -webkit-tap-highlight-color: transparent; }
 .dialog-window .form-modal-head { -webkit-user-select: none; user-select: none; }
 
 
-/* The complete capsule is one click target; its contents never capture a drag. */
-.capsule {
-  display: flex; align-items: center; width: 100%; height: 100%;
-  padding: 0 17px 0 27px; border: 0;
-  border-radius: 18px; background: transparent; box-shadow: none;
-  backdrop-filter: none; -webkit-backdrop-filter: none;
-  opacity: .10; filter: none; transition: opacity .18s ease, background .18s ease;
-  cursor: grab; user-select: none;
-}
-.capsule:hover, .capsule.expanded, .capsule:focus-visible { opacity: 1; filter: none; background: transparent; box-shadow: none; }
-.capsule:active { cursor: grabbing; }
-.capsule:focus-visible { outline: none; }
-.capsule:focus-visible .capsule-name { text-decoration: underline; text-underline-offset: 4px; }
-.capsule-drag { display: flex; align-items: center; flex: 1; min-width: 0; height: 100%; pointer-events: none; }
-.capsule-name { color: #f5f7ff; font-size: 1.125rem; font-weight: 600; letter-spacing: -.015em; }
-.capsule-toggle { display: grid; place-items: center; width: 26px; height: 30px; flex: none; color: #eef4ff; pointer-events: none; }
-:root[data-theme="light"] .capsule { background: transparent; border: 0; box-shadow: none; }
-:root[data-theme="light"] .capsule-name, :root[data-theme="light"] .capsule-toggle { color: var(--text); }
-
 .quick-stage { display: flex; align-items: stretch; width: 100%; height: 100%; min-height: 0; }
 .quick-panel { flex: 1; min-width: 0; min-height: 0; }
 .quick-panel > * { height: 100%; }
@@ -120,7 +101,6 @@ button, input, textarea { -webkit-tap-highlight-color: transparent; }
 :root[data-theme="light"] .quick-detail .detail-main,
 :root[data-theme="light"] .quick-detail .detail-footer { background: rgba(255, 255, 255, .18); }
 
-.projects-window { width: 100%; height: 100%; overflow: hidden; border-radius: 18px; }
 .quick-project-picker { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; border: 1px solid var(--glass-border); border-radius: 18px; background: rgba(16, 17, 20, .78); box-shadow: inset 0 1px 0 rgba(240, 245, 255, .025); }
 :root[data-theme="light"] .quick-project-picker { background: rgba(247, 249, 252, .89); }
 .quick-project-header { height: 63px; display: flex; flex: none; align-items: center; justify-content: space-between; padding: 0 20px 0 22px; color: var(--text); font-size: 1.125rem; font-weight: 400; cursor: grab; user-select: none; }
@@ -218,4 +198,4 @@ button, input, textarea { -webkit-tap-highlight-color: transparent; }
   .quick-detail .footer-tool { width: 34px; }
   .quick-detail .save-status { padding: 0 11px; font-size: .92rem; }
 }
-@media (prefers-reduced-motion: reduce) { .capsule, .quick-detail { animation: none; transition: none; } }
+@media (prefers-reduced-motion: reduce) { .quick-detail { animation: none; transition: none; } }

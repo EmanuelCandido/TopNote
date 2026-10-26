@@ -76,39 +76,48 @@ pub fn restore_backup(state: &AppState, source: &str) -> Result<(), String> {
         if integrity != "ok" { return Err("O banco de dados do backup está corrompido.".into()); }
         db::migrate(&mut check).map_err(|e| e.to_string())?;
         drop(check);
-        let current = db::connect(&state.db_path).map_err(|e| e.to_string())?;
-        current.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").map_err(|e| e.to_string())?;
-        drop(current);
-        let old_db = stage.join("previous.db");
-        let old_attachments = stage.join("previous-attachments");
-        let current_attachments = state.root.join("attachments");
-        fs::rename(&state.db_path, &old_db).map_err(|e| e.to_string())?;
-        if current_attachments.exists() {
-            if let Err(error) = fs::rename(&current_attachments, &old_attachments) {
-                let _ = fs::rename(&old_db, &state.db_path);
-                return Err(error.to_string());
-            }
+        // The shared connection keeps the file open: close it while the files are swapped, and
+        // reopen it on whichever database ends up in place.
+        let mut shared = state.connection()?;
+        shared.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").map_err(|e| e.to_string())?;
+        *shared = Connection::open_in_memory().map_err(|e| e.to_string())?;
+        let swapped = swap_files(state, &stage, &restored_db);
+        *shared = db::connect(&state.db_path).map_err(|e| e.to_string())?;
+        swapped
+    })();
+    let _ = fs::remove_dir_all(stage);
+    result
+}
+
+/// Moves the restored database and attachments into place, putting the old ones back on failure.
+fn swap_files(state: &AppState, stage: &Path, restored_db: &Path) -> Result<(), String> {
+    let old_db = stage.join("previous.db");
+    let old_attachments = stage.join("previous-attachments");
+    let current_attachments = state.root.join("attachments");
+    fs::rename(&state.db_path, &old_db).map_err(|e| e.to_string())?;
+    if current_attachments.exists() {
+        if let Err(error) = fs::rename(&current_attachments, &old_attachments) {
+            let _ = fs::rename(&old_db, &state.db_path);
+            return Err(error.to_string());
         }
-        if let Err(error) = fs::rename(&restored_db, &state.db_path) {
+    }
+    if let Err(error) = fs::rename(restored_db, &state.db_path) {
+        let _ = fs::rename(&old_db, &state.db_path);
+        let _ = fs::rename(&old_attachments, &current_attachments);
+        return Err(error.to_string());
+    }
+    let incoming_attachments = stage.join("attachments");
+    if incoming_attachments.exists() {
+        if let Err(error) = fs::rename(&incoming_attachments, &current_attachments) {
+            let _ = fs::remove_file(&state.db_path);
             let _ = fs::rename(&old_db, &state.db_path);
             let _ = fs::rename(&old_attachments, &current_attachments);
             return Err(error.to_string());
         }
-        let incoming_attachments = stage.join("attachments");
-        if incoming_attachments.exists() {
-            if let Err(error) = fs::rename(&incoming_attachments, &current_attachments) {
-                let _ = fs::remove_file(&state.db_path);
-                let _ = fs::rename(&old_db, &state.db_path);
-                let _ = fs::rename(&old_attachments, &current_attachments);
-                return Err(error.to_string());
-            }
-        } else { fs::create_dir_all(&current_attachments).map_err(|e| e.to_string())?; }
-        let _ = fs::remove_file(state.root.join("topnote.db-wal"));
-        let _ = fs::remove_file(state.root.join("topnote.db-shm"));
-        Ok(())
-    })();
-    let _ = fs::remove_dir_all(stage);
-    result
+    } else { fs::create_dir_all(&current_attachments).map_err(|e| e.to_string())?; }
+    let _ = fs::remove_file(state.root.join("topnote.db-wal"));
+    let _ = fs::remove_file(state.root.join("topnote.db-shm"));
+    Ok(())
 }
 
 fn unix_now() -> u64 {

@@ -1,44 +1,51 @@
-use crate::AppState;
-use rusqlite::OptionalExtension;
+use crate::{capsule, AppState};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use tauri::{Emitter, LogicalSize, Manager, PhysicalPosition};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
-fn setting(state: &AppState, key: &str) -> Option<String> {
-    state.connection().ok()?.query_row("SELECT value FROM settings WHERE key=?1", [key], |r| r.get(0)).optional().ok().flatten()
-}
+/// How long the editor may stay hidden before its WebView is unloaded. Only the native
+/// capsule, the tray and the hotkey remain; the next opening rebuilds the WebView.
+const IDLE_UNLOAD_SECS: u64 = 120;
+/// How long it stays hidden before WebView2 may trim its caches. Trimming on every hide threw
+/// away the rasterised page, so the next opening repainted everything while it animated.
+const IDLE_TRIM_SECS: u64 = 30;
 
+fn setting(state: &AppState, key: &str) -> Option<String> { state.setting(key) }
+
+/// The windows are opaque cards, so the DWM acrylic behind them stays off unless a setting asks for it.
 pub(crate) fn blur_enabled(state: &AppState) -> bool {
-    setting(state,"blur").as_deref() != Some("false")
+    setting(state,"blur").as_deref() == Some("true")
 }
 
-pub(crate) fn monitor_for(window: &tauri::WebviewWindow, state: &AppState) -> Option<tauri::Monitor> {
-    let monitors = window.available_monitors().ok()?;
+pub(crate) fn monitor_for(app: &tauri::AppHandle, state: &AppState) -> Option<tauri::Monitor> {
+    let monitors = app.available_monitors().ok()?;
     let choice = setting(state,"monitor").and_then(|s| s.parse::<usize>().ok());
-    choice.and_then(|i| monitors.get(i).cloned()).or_else(|| window.primary_monitor().ok().flatten()).or_else(|| monitors.into_iter().next())
+    choice.and_then(|i| monitors.get(i).cloned()).or_else(|| app.primary_monitor().ok().flatten()).or_else(|| monitors.into_iter().next())
 }
 
-fn capsule_position(window: &tauri::WebviewWindow, state: &AppState, width: u32) -> PhysicalPosition<i32> {
+/// Where the capsule rests: the position it was dragged to, or centred at the top of the chosen monitor.
+fn capsule_home(app: &tauri::AppHandle, state: &AppState) -> (PhysicalPosition<i32>, f64) {
     if let (Some(x),Some(y)) = (setting(state,"capsuleX").and_then(|s|s.parse::<i32>().ok()),setting(state,"capsuleY").and_then(|s|s.parse::<i32>().ok())) {
-        if let Ok(monitors) = window.available_monitors() {
-            if monitors.iter().any(|m| x >= m.position().x && y >= m.position().y && x < m.position().x + m.size().width as i32 && y < m.position().y + m.size().height as i32) {
-                return PhysicalPosition::new(x,y);
+        if let Ok(monitors) = app.available_monitors() {
+            if let Some(monitor) = monitors.iter().find(|m| x >= m.position().x && y >= m.position().y && x < m.position().x + m.size().width as i32 && y < m.position().y + m.size().height as i32) {
+                return (PhysicalPosition::new(x,y), monitor.scale_factor());
             }
         }
     }
-    if let Some(monitor) = monitor_for(window,state) {
-        let position = monitor.position();
-        let size = monitor.size();
-        return PhysicalPosition::new(position.x + (size.width as i32 - width as i32)/2, position.y + (12.0 * monitor.scale_factor()) as i32);
+    if let Some(monitor) = monitor_for(app,state) {
+        let area = monitor.work_area();
+        let scale = monitor.scale_factor();
+        let width = (capsule::WIDTH * scale).round() as i32;
+        return (PhysicalPosition::new(area.position.x + (area.size.width as i32 - width)/2, area.position.y + (12.0 * scale) as i32), scale);
     }
-    PhysicalPosition::new(500,12)
+    (PhysicalPosition::new(500,12), 1.0)
 }
 
-fn saved_size(state: &AppState, mode: &str, fallback: (f64, f64), minimum: (f64, f64), window: &tauri::WebviewWindow) -> (f64, f64) {
+fn saved_size(state: &AppState, mode: &str, fallback: (f64, f64), minimum: (f64, f64), monitor: Option<&tauri::Monitor>) -> (f64, f64) {
     let width = setting(state, &format!("{mode}Width")).and_then(|s| s.parse::<f64>().ok()).unwrap_or(fallback.0);
     let height = setting(state, &format!("{mode}Height")).and_then(|s| s.parse::<f64>().ok()).unwrap_or(fallback.1);
-    let maximum = monitor_for(window, state)
+    let maximum = monitor
         .map(|m| ((m.size().width as f64 / m.scale_factor() - 40.0).max(minimum.0), (m.size().height as f64 / m.scale_factor() - 40.0).max(minimum.1)))
         .unwrap_or((1920.0, 1080.0));
     (width.clamp(minimum.0, maximum.0), height.clamp(minimum.1, maximum.1))
@@ -73,7 +80,7 @@ unsafe extern "system" fn frameless_window_proc(hwnd: windows_sys::Win32::Founda
     if message == WM_NCPAINT { return 0; }
     if message == WM_NCCALCSIZE { return 0; }
     // The Windows 11 acrylic backdrop turns solid on inactive windows. Report every
-    // window as active to DWM so the editor and the projects panel stay translucent.
+    // window as active to DWM so the editor stays translucent.
     if message == WM_NCACTIVATE { return DefSubclassProc(hwnd,message,1,-1); }
     if message == WM_NCLBUTTONDOWN {
         // Tao 0.35 passes a POINTS pointer here. Win32 expects packed screen coordinates.
@@ -93,7 +100,7 @@ unsafe extern "system" fn frameless_window_proc(hwnd: windows_sys::Win32::Founda
 fn apply_window_shape(window: &tauri::Window) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND};
+        use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE, DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND};
         use windows_sys::Win32::UI::Shell::SetWindowSubclass;
         let hwnd = window.hwnd().map_err(|e| e.to_string())?;
         unsafe {
@@ -107,6 +114,9 @@ fn apply_window_shape(window: &tauri::Window) -> Result<(), String> {
             let border = DWMWA_COLOR_NONE;
             let result = DwmSetWindowAttribute(hwnd.0,DWMWA_BORDER_COLOR as u32,&border as *const _ as _,std::mem::size_of_val(&border) as u32);
             if result < 0 { eprintln!("Borda DWM: 0x{result:08x}"); }
+            // The page animates its own entrance; a DWM fade on show and hide would run on top of it.
+            let disabled: windows_sys::core::BOOL = 1;
+            DwmSetWindowAttribute(hwnd.0,DWMWA_TRANSITIONS_FORCEDISABLED as u32,&disabled as *const _ as _,std::mem::size_of_val(&disabled) as u32);
         }
     }
     Ok(())
@@ -122,35 +132,29 @@ fn windows_transparency_enabled() -> bool {
     unsafe { RegGetValueW(HKEY_CURRENT_USER,key.as_ptr(),name.as_ptr(),RRF_RT_REG_DWORD,std::ptr::null_mut(),&mut value as *mut _ as _,&mut size) == 0 && value != 0 }
 }
 
-#[cfg(windows)]
+/// Turns the window's DWM backdrop on or off. On Windows 11 22H2 and later window-vibrancy
+/// uses the system backdrop (DWMSBT_TRANSIENTWINDOW), the acrylic of Windows' own flyouts.
 pub fn apply_window_material(window: &tauri::WebviewWindow, active: bool) -> Result<(), String> {
-    // The accent blur paints black over WebView2 on this Windows 11 build.
-    // DWM acrylic supports composition with the transparent WebView instead.
-    if active && windows_transparency_enabled() {
-        window_vibrancy::apply_acrylic(window,None).map_err(|e| e.to_string())
-    } else {
-        window_vibrancy::clear_acrylic(window).map_err(|e| e.to_string())
+    #[cfg(windows)]
+    {
+        // The accent blur paints black over WebView2 on this Windows 11 build.
+        // DWM acrylic supports composition with the transparent WebView instead.
+        if active && windows_transparency_enabled() {
+            window_vibrancy::apply_acrylic(window,None).map_err(|e| e.to_string())
+        } else {
+            window_vibrancy::clear_acrylic(window).map_err(|e| e.to_string())
+        }
     }
+    #[cfg(not(windows))]
+    { let _ = (window, active); Ok(()) }
 }
 
-#[cfg(windows)]
 pub fn refresh_window_materials(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
-    let enabled = blur_enabled(state);
-    let capsule_open = state.mode.lock().map_err(|e| e.to_string())?.as_str() == "quick";
-    for (label,window) in app.webview_windows() {
-        apply_window_material(&window, enabled && (label != "capsule" || capsule_open))?;
+    let mode = state.mode.lock().map_err(|e| e.to_string())?.clone();
+    if let Some(window) = app.get_webview_window("main") {
+        if mode == "quick" || mode == "workspace" { apply_window_material(&window, blur_enabled(state))?; }
     }
     Ok(())
-}
-
-/// Creates a window from its tauri.conf.json entry the first time it is needed.
-pub fn ensure_window(app: &tauri::AppHandle, label: &str) -> Result<tauri::WebviewWindow, String> {
-    if let Some(window) = app.get_webview_window(label) { return Ok(window); }
-    let config = app.config().app.windows.iter().find(|config| config.label == label).ok_or("Janela não configurada.")?.clone();
-    let window = tauri::WebviewWindowBuilder::from_config(app, &config).map_err(|e| e.to_string())?.build().map_err(|e| e.to_string())?;
-    window.set_shadow(true).map_err(|e| e.to_string())?;
-    round_window(&window.as_ref().window())?;
-    Ok(window)
 }
 
 /// Lets WebView2 trim caches and heap while a window is hidden, and restores it when shown.
@@ -169,20 +173,6 @@ pub fn set_webview_idle(window: &tauri::WebviewWindow, idle: bool) {
     let _ = (window, idle);
 }
 
-pub fn initialize_windows(app: &tauri::AppHandle) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    for (label, window) in app.webview_windows() {
-        window.set_shadow(label != "capsule").map_err(|e| e.to_string())?;
-        if label == "projects" { set_webview_idle(&window, true); }
-        round_window(&window.as_ref().window())?;
-        #[cfg(windows)]
-        if label != "capsule" {
-            if let Err(error) = apply_window_material(&window, blur_enabled(&state)) { eprintln!("Material de {label}: {error}"); }
-        }
-    }
-    Ok(())
-}
-
 pub(crate) fn clamp_position(position: PhysicalPosition<i32>, size: (u32,u32), monitor: &tauri::Monitor) -> PhysicalPosition<i32> {
     let area = monitor.work_area();
     let max_x = (area.position.x + area.size.width as i32 - size.0 as i32).max(area.position.x);
@@ -190,300 +180,229 @@ pub(crate) fn clamp_position(position: PhysicalPosition<i32>, size: (u32,u32), m
     PhysicalPosition::new(position.x.clamp(area.position.x,max_x),position.y.clamp(area.position.y,max_y))
 }
 
-pub fn reposition_capsule(app: &tauri::AppHandle, state: &AppState) -> Result<(), String> {
-    let capsule = app.get_webview_window("capsule").ok_or("Cápsula não encontrada.")?;
-    if let Some(monitor) = monitor_for(&capsule,state) {
-        let area = monitor.work_area();
-        let width = (240.0 * monitor.scale_factor()).round() as i32;
-        capsule.set_position(PhysicalPosition::new(area.position.x + (area.size.width as i32 - width)/2,area.position.y + (12.0 * monitor.scale_factor()) as i32)).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+pub fn reposition_capsule(app: &tauri::AppHandle, state: &AppState) {
+    if !capsule::is_visible() { return; }
+    let (position, scale) = capsule_home(app, state);
+    capsule::show(position.x, position.y, scale);
 }
 
-#[derive(Clone, Copy)]
-struct Rect { x: f64, y: f64, width: f64, height: f64 }
+/// Matches the capsule to the app theme and interface scale.
+pub fn refresh_capsule_appearance(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let dark = match setting(&state,"theme").as_deref() {
+        Some("light") => false,
+        Some("system") => !capsule::system_prefers_light(),
+        _ => true,
+    };
+    let scale = setting(&state,"scale").and_then(|s| s.parse::<f64>().ok()).unwrap_or(100.0) / 100.0;
+    capsule::set_appearance(dark, scale);
+}
 
-impl Rect {
-    fn of(window: &tauri::WebviewWindow) -> Result<Self, String> {
-        let position = window.outer_position().map_err(|e| e.to_string())?;
-        let size = window.outer_size().map_err(|e| e.to_string())?;
-        Ok(Self { x: position.x as f64, y: position.y as f64, width: size.width as f64, height: size.height as f64 })
-    }
-    fn lerp(self, to: Self, t: f64) -> Self {
-        Self { x: self.x + (to.x - self.x) * t, y: self.y + (to.y - self.y) * t,
-            width: (self.width + (to.width - self.width) * t).max(1.0), height: (self.height + (to.height - self.height) * t).max(1.0) }
+pub fn capsule_action(app: &tauri::AppHandle, action: capsule::Action) {
+    match action {
+        capsule::Action::Toggle => deliver(app, "topnote:request-mode", "toggle"),
+        capsule::Action::Favorites => deliver(app, "topnote:navigate", "favorites"),
+        capsule::Action::NewNote => deliver(app, "topnote:navigate", "new"),
+        capsule::Action::Hovered => prewarm(app),
+        capsule::Action::Moved(x, y) => {
+            let state = app.state::<AppState>();
+            for (key, value) in [("capsuleX", x), ("capsuleY", y)] {
+                if let Err(error) = state.set_setting(key, &value.to_string()) { eprintln!("Posição da cápsula: {error}"); }
+            }
+        }
+        capsule::Action::ThemeChanged => refresh_capsule_appearance(app),
     }
 }
 
-#[derive(Clone, serde::Serialize)]
-struct MotionEvent { phase: &'static str, width: f64, height: f64, anchor: &'static str }
-
-/// Closed-form damped spring from 0 to 1. `response` is the period in seconds.
-fn spring(t: f64, response: f64, damping: f64) -> f64 {
-    let omega = std::f64::consts::TAU / response;
-    if damping >= 1.0 { return 1.0 - (1.0 + omega * t) * (-omega * t).exp(); }
-    let damped = omega * (1.0 - damping * damping).sqrt();
-    1.0 - (-damping * omega * t).exp() * ((damped * t).cos() + damping * omega / damped * (damped * t).sin())
+/// Sends an event to the editor page. While the page is unloaded or still starting, the
+/// event waits in a queue that the page drains once it is ready (main_ready).
+pub fn deliver(app: &tauri::AppHandle, event: &str, payload: &str) {
+    let state = app.state::<AppState>();
+    {
+        // Checked under the queue lock, so an event never lands after the page drained it.
+        let Ok(mut pending) = state.pending.lock() else { return };
+        if !state.main_ready.load(Ordering::SeqCst) || app.get_webview_window("main").is_none() {
+            pending.push((event.to_string(), payload.to_string()));
+            drop(pending);
+            prewarm(app);
+            return;
+        }
+    }
+    if let Err(error) = app.emit_to("main", event, payload) { eprintln!("Evento {event}: {error}"); }
 }
 
-/// Moves and resizes in one native call; separate position and size calls step visibly.
-/// Asynchronous, so the animation thread never waits on the UI thread.
-fn place(window: &tauri::WebviewWindow, rect: Rect) -> Result<(), String> {
+/// Builds the editor window in the background if it does not exist yet.
+pub fn prewarm(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    // Being used again: restart the unload countdown.
+    let mode = state.mode.lock().map(|mode| mode.clone()).unwrap_or_default();
+    if mode == "capsule" || mode == "hidden" { schedule_unload(app); }
+    // A hover usually means a click is coming: give the trimmed WebView its caches back first.
+    if let Some(window) = app.get_webview_window("main") { set_webview_idle(&window, false); return; }
+    if state.building.swap(true, Ordering::SeqCst) { return; }
+    let app = app.clone();
+    // WebView2 windows are built off the main thread so the event loop can service the build.
+    std::thread::spawn(move || {
+        if let Err(error) = build_main(&app) { eprintln!("Editor: {error}"); }
+        app.state::<AppState>().building.store(false, Ordering::SeqCst);
+    });
+}
+
+fn build_main(app: &tauri::AppHandle) -> Result<(), String> {
+    let config = app.config().app.windows.iter().find(|config| config.label == "main").ok_or("Janela não configurada.")?.clone();
+    let window = tauri::WebviewWindowBuilder::from_config(app, &config).map_err(|e| e.to_string())?.build().map_err(|e| e.to_string())?;
+    window.set_shadow(true).map_err(|e| e.to_string())?;
+    round_window(&window.as_ref().window())
+}
+
+/// Lets the hidden editor trim its caches after a while, and unloads its WebView later still.
+fn schedule_unload(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let generation = state.idle.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let still_idle = |app: &tauri::AppHandle| {
+            let state = app.state::<AppState>();
+            let mode = state.mode.lock().map(|mode| mode.clone()).unwrap_or_default();
+            state.idle.load(Ordering::SeqCst) == generation && (mode == "capsule" || mode == "hidden")
+        };
+        std::thread::sleep(std::time::Duration::from_secs(IDLE_TRIM_SECS));
+        if !still_idle(&app) { return; }
+        if let Some(window) = app.get_webview_window("main") {
+            if !window.is_visible().unwrap_or(true) { set_webview_idle(&window, true); }
+        }
+        std::thread::sleep(std::time::Duration::from_secs(IDLE_UNLOAD_SECS - IDLE_TRIM_SECS));
+        if !still_idle(&app) { return; }
+        let state = app.state::<AppState>();
+        if let Some(window) = app.get_webview_window("main") {
+            if window.is_visible().unwrap_or(true) { return; }
+            state.main_ready.store(false, Ordering::SeqCst);
+            if let Err(error) = window.destroy() { eprintln!("Descarregar editor: {error}"); }
+        }
+    });
+}
+
+/// Capsule rect relative to the editor window, in logical pixels: where the panel grows from.
+pub fn motion_anchor(app: &tauri::AppHandle) -> Option<[f64; 4]> {
+    let window = app.get_webview_window("main")?;
+    let position = window.outer_position().ok()?;
+    let scale = window.scale_factor().ok()?;
+    let capsule = capsule::geometry();
+    Some([(capsule.x - position.x) as f64 / scale, (capsule.y - position.y) as f64 / scale, capsule.width as f64 / scale, capsule.height as f64 / scale])
+}
+
+/// Shows the editor without activating it. Activating a WebView2 window (SW_SHOW) blocks the
+/// main thread for 60-110 ms while focus moves into the page, and the IPC reply waits behind
+/// it; showing it inactive takes about 3 ms. The page calls activate_window once its entrance
+/// is under way, so the panel starts moving at once and gets focus a moment later.
+fn show_inactive(window: &tauri::WebviewWindow) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNA};
         let hwnd = window.hwnd().map_err(|e| e.to_string())?;
-        if unsafe { SetWindowPos(hwnd.0, std::ptr::null_mut(), rect.x.round() as i32, rect.y.round() as i32,
-            rect.width.round() as i32, rect.height.round() as i32, SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER) } == 0 {
-            return Err(std::io::Error::last_os_error().to_string());
-        }
+        unsafe { ShowWindow(hwnd.0, SW_SHOWNA); }
         Ok(())
     }
     #[cfg(not(windows))]
-    {
-        window.set_position(PhysicalPosition::new(rect.x.round() as i32, rect.y.round() as i32)).map_err(|e| e.to_string())?;
-        window.set_size(tauri::PhysicalSize::new(rect.width.round() as u32, rect.height.round() as u32)).map_err(|e| e.to_string())
-    }
+    { window.show().map_err(|e| e.to_string())?; window.set_focus().map_err(|e| e.to_string()) }
 }
 
-/// Springs the window between two bounds on a worker thread, one step per compositor frame.
-/// Returns false when a newer request took over.
-fn animate(app: &tauri::AppHandle, window: &tauri::WebviewWindow, from: Rect, to: Rect, counter: fn(&AppState) -> &AtomicU64, generation: u64, response: f64, damping: f64) -> bool {
-    use std::time::{Duration, Instant};
-    let state = app.state::<AppState>();
-    state.animating.fetch_add(1, Ordering::SeqCst);
-    let started = Instant::now();
-    let finished = loop {
-        if counter(&state).load(Ordering::SeqCst) != generation { break false; }
-        let t = started.elapsed().as_secs_f64();
-        let progress = spring(t, response, damping);
-        let done = t > 0.8 || (t > 0.1 && (1.0 - progress).abs() < 0.003);
-        if place(window, if done { to } else { from.lerp(to, progress) }).is_err() || done { break true; }
-        #[cfg(windows)]
-        if unsafe { windows_sys::Win32::Graphics::Dwm::DwmFlush() } < 0 { std::thread::sleep(Duration::from_millis(7)); }
-        #[cfg(not(windows))]
-        std::thread::sleep(Duration::from_millis(7));
-    };
-    state.animating.fetch_sub(1, Ordering::SeqCst);
-    // Resize events skip the shape refresh while springing; apply it once at rest.
-    let _ = round_window(&window.as_ref().window());
-    finished
-}
-
-/// Where the projects panel grows from and folds into: the project button in the editor
-/// header (its logical rect inside the editor), or a sliver against the editor edge.
-fn projects_seed(state: &AppState, panel: Rect, main: Rect, scale: f64) -> Rect {
-    if let Some([x, y, width, height]) = state.projects_origin.lock().ok().and_then(|origin| *origin) {
-        return Rect { x: main.x + x * scale, y: main.y + y * scale, width: (width * scale).max(1.0), height: (height * scale).max(1.0) };
-    }
-    let width = (64.0 * scale).min(panel.width);
-    let x = if panel.x + panel.width / 2.0 < main.x + main.width / 2.0 { panel.x + panel.width - width } else { panel.x };
-    Rect { x, y: panel.y, width, height: (63.0 * scale).min(panel.height) }
-}
-
-pub fn hide_projects(app: &tauri::AppHandle) -> Result<(), String> { hide_projects_into(app, None) }
-
-/// Folds the projects panel into `target`, or into the project button when there is none.
-fn hide_projects_into(app: &tauri::AppHandle, target: Option<Rect>) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    let generation = state.projects_motion.fetch_add(1, Ordering::SeqCst) + 1;
-    if let Some(window) = app.get_webview_window("projects") {
-        let animated = setting(&state,"animations").as_deref() != Some("false");
-        let main = app.get_webview_window("main").filter(|main| main.is_visible().unwrap_or(false));
-        match (animated && window.is_visible().map_err(|e| e.to_string())?, main) {
-            (true, Some(main)) => {
-                let from = Rect::of(&window)?;
-                let main = Rect::of(&main)?;
-                let to = match target { Some(target) => target, None => projects_seed(&state, from, main, window.scale_factor().map_err(|e| e.to_string())?) };
-                let anchor = if from.x < main.x { "right" } else { "left" };
-                window.set_min_size(None::<LogicalSize<f64>>).map_err(|e| e.to_string())?;
-                let _ = app.emit_to("projects","topnote:window-motion",MotionEvent { phase:"closing", width:from.width / window.scale_factor().unwrap_or(1.0), height:from.height / window.scale_factor().unwrap_or(1.0), anchor });
-                let app = app.clone();
-                std::thread::spawn(move || {
-                    if animate(&app, &window, from, to, |state| &state.projects_motion, generation, 0.22, 1.0) {
-                        let _ = window.hide(); set_webview_idle(&window, true);
-                        let _ = app.emit_to("projects","topnote:window-motion",MotionEvent { phase:"idle", width:0.0, height:0.0, anchor:"center" });
-                    }
-                });
-            }
-            _ => { window.hide().map_err(|e| e.to_string())?; set_webview_idle(&window, true); }
-        }
-    }
-    app.emit_to("main","topnote:projects-visible",false).map_err(|e| e.to_string())
-}
-
-pub fn show_projects(app: &tauri::AppHandle, selected_id: Option<String>, origin: Option<[f64; 4]>) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    *state.projects_origin.lock().map_err(|e| e.to_string())? = origin;
-    let main = app.get_webview_window("main").ok_or("Editor não encontrado.")?;
-    let projects = app.get_webview_window("projects").ok_or("Seletor de projetos não encontrado.")?;
-    let generation = state.projects_motion.fetch_add(1, Ordering::SeqCst) + 1;
-    let was_visible = projects.is_visible().map_err(|e| e.to_string())?;
-    let position = main.outer_position().map_err(|e| e.to_string())?;
-    let size = main.outer_size().map_err(|e| e.to_string())?;
-    let scale = main.scale_factor().map_err(|e| e.to_string())?;
-    let monitor = main.current_monitor().map_err(|e| e.to_string())?;
-    let width = (231.0 * scale).round() as u32;
-    let height = (360.0 * scale).round() as u32;
-    let mut target = PhysicalPosition::new(position.x - width as i32 - (8.0 * scale) as i32, position.y);
-    if let Some(monitor) = monitor {
-        if target.x < monitor.work_area().position.x { target.x = position.x + size.width as i32 + (8.0 * scale) as i32; }
-        target = clamp_position(target,(width,height),&monitor);
-    }
-    let panel = Rect { x:target.x as f64, y:target.y as f64, width:width as f64, height:height as f64 };
-    let animated = setting(&state,"animations").as_deref() != Some("false");
-    let from = if !animated { panel } else if was_visible { Rect::of(&projects)? }
-        else { projects_seed(&state, panel, Rect { x:position.x as f64, y:position.y as f64, width:size.width as f64, height:size.height as f64 }, scale) };
-    projects.set_min_size(None::<LogicalSize<f64>>).map_err(|e| e.to_string())?;
-    projects.set_position(PhysicalPosition::new(from.x.round() as i32, from.y.round() as i32)).map_err(|e| e.to_string())?;
-    projects.set_size(tauri::PhysicalSize::new(from.width.round() as u32, from.height.round() as u32)).map_err(|e| e.to_string())?;
-    if animated { let _ = app.emit_to("projects","topnote:window-motion",MotionEvent { phase:"opening", width:231.0, height:360.0, anchor:if panel.x < position.x as f64 { "right" } else { "left" } }); }
-    projects.set_always_on_top(main.is_always_on_top().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-    set_webview_idle(&projects, false);
-    projects.show().map_err(|e| e.to_string())?;
-    projects.set_focus().map_err(|e| e.to_string())?;
-    round_window(&projects.as_ref().window())?;
+/// Activates the shown editor and keeps Tao's visibility state in step with the window.
+pub fn activate_window(window: &tauri::WebviewWindow) -> Result<(), String> {
     #[cfg(windows)]
-    if let Err(error) = apply_window_material(&projects, blur_enabled(&state)) { eprintln!("Material do seletor: {error}"); }
-    app.emit_to("projects","topnote:select-project",selected_id).map_err(|e| e.to_string())?;
-    let (handle, window) = (app.clone(), projects.clone());
-    std::thread::spawn(move || {
-        if animate(&handle, &window, from, panel, |state| &state.projects_motion, generation, 0.28, 0.92) {
-            let _ = window.set_min_size(Some(LogicalSize::new(210.0,240.0)));
-            let _ = handle.emit_to("projects","topnote:window-motion",MotionEvent { phase:"idle", width:0.0, height:0.0, anchor:"center" });
-        }
-    });
-    app.emit_to("main","topnote:projects-visible",true).map_err(|e| e.to_string())
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+        // Closed again before this ran: leave it hidden.
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+        if unsafe { IsWindowVisible(hwnd.0) } == 0 { return Ok(()); }
+    }
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())
 }
 
-pub fn set_window_mode(app: &tauri::AppHandle, mode: &str, animated: bool) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    let generation = state.motion.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-    let window = app.get_webview_window("main").ok_or("Janela principal não encontrada.")?;
-    let capsule = app.get_webview_window("capsule").ok_or("Cápsula não encontrada.")?;
-    let previous = state.mode.lock().map_err(|e| e.to_string())?.clone();
+/// Applies a window mode. Windows never animate their bounds: the editor appears at its final
+/// size and the page animates its own surface out of the capsule. When `animate` asks for that
+/// entrance, the backdrop stays off (the page turns it on when it settles) and the capsule
+/// anchor is returned.
+pub fn set_window_mode(app: &tauri::AppHandle, mode: &str, animate: bool) -> Result<Option<[f64; 4]>, String> {
     if !["capsule","quick","workspace","hidden"].contains(&mode) { return Err("Modo de janela inválido.".into()); }
-    let folding = mode == "capsule" && previous == "quick";
-    if mode != "quick" && !folding { hide_projects(app)?; }
-    if mode == "hidden" {
-        window.hide().map_err(|e| e.to_string())?;
-        set_webview_idle(&window, true);
-        capsule.hide().map_err(|e| e.to_string())?;
-        if let Some(dialog) = app.get_webview_window("dialog") { dialog.destroy().map_err(|e| e.to_string())?; }
-        *state.mode.lock().map_err(|e| e.to_string())? = mode.into();
-        let _ = app.emit("topnote:mode",mode);
-        return Ok(());
-    }
-    let scale = capsule.scale_factor().map_err(|e| e.to_string())?;
-    let capsule_width = (240.0 * scale) as u32;
-    let base = if capsule.is_visible().map_err(|e| e.to_string())? && (previous == "quick" || previous == "capsule") {
-        capsule.outer_position().map_err(|e| e.to_string())?
-    } else { capsule_position(&capsule,&state,capsule_width) };
+    let state = app.state::<AppState>();
+    let window = app.get_webview_window("main");
+    let previous = state.mode.lock().map_err(|e| e.to_string())?.clone();
     let top_setting = setting(&state,"alwaysOnTop").unwrap_or_else(|| "always".into());
-    let animated = animated && setting(&state,"animations").as_deref() != Some("false");
-    let capsule_rect = Rect { x: base.x as f64, y: base.y as f64, width: 240.0 * scale, height: 52.0 * scale };
-    let window_visible = window.is_visible().map_err(|e| e.to_string())?;
-    let mut opening: Option<(Rect, Rect)> = None;
+    let mut anchor = None;
     match mode {
-        "capsule" if animated && previous == "quick" && window_visible => {
-            // The panel folds back into the capsule, then hides behind it.
-            let from = Rect::of(&window)?;
-            // Both panels fold into the capsule together; the button they came from is leaving too.
-            hide_projects_into(app, Some(capsule_rect))?;
-            window.set_min_size(None::<LogicalSize<f64>>).map_err(|e| e.to_string())?;
-            let _ = app.emit_to("main","topnote:window-motion",MotionEvent { phase:"closing", width:from.width / scale, height:from.height / scale, anchor:"center" });
-            capsule.set_size(LogicalSize::new(240.0,52.0)).map_err(|e| e.to_string())?;
-            capsule.set_position(base).map_err(|e| e.to_string())?;
-            capsule.set_always_on_top(top_setting == "always").map_err(|e| e.to_string())?;
-            capsule.show().map_err(|e| e.to_string())?;
-            let (app, window) = (app.clone(), window.clone());
-            std::thread::spawn(move || {
-                if animate(&app, &window, from, capsule_rect, |state| &state.motion, generation, 0.24, 1.0) {
-                    let _ = window.hide();
-                    set_webview_idle(&window, true);
-                    let _ = app.emit_to("main","topnote:window-motion",MotionEvent { phase:"idle", width:0.0, height:0.0, anchor:"center" });
-                }
-            });
-        }
-        "capsule" => {
-            if folding { hide_projects(app)?; }
-            window.hide().map_err(|e| e.to_string())?;
-            set_webview_idle(&window, true);
-            capsule.set_size(LogicalSize::new(240.0,52.0)).map_err(|e| e.to_string())?;
-            capsule.set_position(base).map_err(|e| e.to_string())?;
-            capsule.set_always_on_top(top_setting == "always").map_err(|e| e.to_string())?;
-            capsule.show().map_err(|e| e.to_string())?;
+        "hidden" | "capsule" => {
+            if let Some(window) = &window {
+                window.hide().map_err(|e| e.to_string())?;
+                // Also hide through Win32: a window shown by show_inactive that was never activated
+                // is still hidden as far as Tao knows, so its hide would do nothing.
+                #[cfg(windows)]
+                if let Ok(hwnd) = window.hwnd() { unsafe { windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(hwnd.0, windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE); } }
+            }
+            if mode == "hidden" { capsule::hide(); }
+            else {
+                let (position, scale) = if capsule::is_visible() { let g = capsule::geometry(); (PhysicalPosition::new(g.x, g.y), g.scale) } else { capsule_home(app, &state) };
+                capsule::show(position.x, position.y, scale);
+                capsule::set_expanded(false);
+                capsule::set_topmost(top_setting == "always");
+            }
         }
         "quick" => {
-            let (width,height) = saved_size(&state,"quickPanel",(660.0,638.0),(420.0,340.0),&window);
-            let animate_open = animated && previous != mode && (previous == "capsule" || previous == "hidden");
-            if !animate_open {
-                window.set_min_size(Some(LogicalSize::new(420.0,340.0))).map_err(|e| e.to_string())?;
-                window.set_resizable(true).map_err(|e| e.to_string())?;
-            }
+            let window = window.as_ref().ok_or("Janela principal não encontrada.")?;
+            let (base, capsule_scale) = if capsule::is_visible() && (previous == "quick" || previous == "capsule") {
+                let g = capsule::geometry(); (PhysicalPosition::new(g.x, g.y), g.scale)
+            } else { capsule_home(app, &state) };
+            capsule::show(base.x, base.y, capsule_scale);
+            capsule::set_expanded(true);
+            capsule::set_topmost(top_setting != "never");
+            let monitor = app.monitor_from_point(base.x as f64, base.y as f64).ok().flatten().or_else(|| monitor_for(app, &state));
+            let scale = monitor.as_ref().map(|m| m.scale_factor()).unwrap_or(capsule_scale);
+            let (width,height) = saved_size(&state,"quickPanel",(660.0,638.0),(420.0,340.0),monitor.as_ref());
+            window.set_min_size(Some(LogicalSize::new(420.0,340.0))).map_err(|e| e.to_string())?;
+            window.set_resizable(true).map_err(|e| e.to_string())?;
             if previous != mode {
-                let mut target = PhysicalPosition::new(base.x - (((width-240.0)/2.0)*scale) as i32,base.y + (64.0*scale) as i32);
-                if let Some(monitor) = capsule.current_monitor().map_err(|e| e.to_string())? { target = clamp_position(target,((width*scale) as u32,(height*scale) as u32),&monitor); }
-                if animate_open {
-                    // Grow out of the capsule, or from wherever an interrupted collapse left the panel.
-                    let from = if window_visible { Rect::of(&window)? } else { capsule_rect };
-                    window.set_min_size(None::<LogicalSize<f64>>).map_err(|e| e.to_string())?;
-                    window.set_resizable(true).map_err(|e| e.to_string())?;
-                    window.set_position(PhysicalPosition::new(from.x.round() as i32, from.y.round() as i32)).map_err(|e| e.to_string())?;
-                    window.set_size(tauri::PhysicalSize::new(from.width.round() as u32, from.height.round() as u32)).map_err(|e| e.to_string())?;
-                    let _ = app.emit_to("main","topnote:window-motion",MotionEvent { phase:"opening", width, height, anchor:"center" });
-                    opening = Some((from, Rect { x:target.x as f64, y:target.y as f64, width:width * scale, height:height * scale }));
-                } else {
-                    window.set_size(LogicalSize::new(width,height)).map_err(|e| e.to_string())?;
-                    window.set_position(target).map_err(|e| e.to_string())?;
+                let size = ((width*scale).round() as u32,(height*scale).round() as u32);
+                let mut target = PhysicalPosition::new(base.x - (((width-capsule::WIDTH)/2.0)*scale) as i32,base.y + (64.0*scale) as i32);
+                if let Some(monitor) = &monitor { target = clamp_position(target,size,monitor); }
+                window.set_size(tauri::PhysicalSize::new(size.0,size.1)).map_err(|e| e.to_string())?;
+                window.set_position(target).map_err(|e| e.to_string())?;
+                if animate && previous != "workspace" {
+                    anchor = Some([(base.x - target.x) as f64 / scale, (base.y - target.y) as f64 / scale, capsule::WIDTH * capsule_scale / scale, capsule::HEIGHT * capsule_scale / scale]);
                 }
             }
             window.set_skip_taskbar(true).map_err(|e| e.to_string())?;
             window.set_always_on_top(top_setting != "never").map_err(|e| e.to_string())?;
-            capsule.set_position(base).map_err(|e| e.to_string())?;
-            capsule.set_always_on_top(top_setting != "never").map_err(|e| e.to_string())?;
-            capsule.show().map_err(|e| e.to_string())?;
+            apply_window_material(window, anchor.is_none() && blur_enabled(&state))?;
+            set_webview_idle(window, false);
+            show_inactive(window)?;
         }
         "workspace" => {
-            capsule.hide().map_err(|e| e.to_string())?;
+            let window = window.as_ref().ok_or("Janela principal não encontrada.")?;
+            capsule::hide();
             window.set_always_on_top(top_setting == "always").map_err(|e| e.to_string())?;
             window.set_skip_taskbar(false).map_err(|e| e.to_string())?;
             window.set_resizable(true).map_err(|e| e.to_string())?;
-            let (width,height) = monitor_for(&window,&state).map(|m| ((m.size().width as f64 / m.scale_factor()).min(1280.0).max(800.0),(m.size().height as f64 / m.scale_factor()).min(820.0).max(550.0))).unwrap_or((1200.0,760.0));
-            let (width,height) = saved_size(&state,"workspace",(width,height),(780.0,520.0),&window);
+            let monitor = window.current_monitor().ok().flatten().or_else(|| monitor_for(app, &state));
+            let (width,height) = monitor.as_ref().map(|m| ((m.size().width as f64 / m.scale_factor()).min(1280.0).max(800.0),(m.size().height as f64 / m.scale_factor()).min(820.0).max(550.0))).unwrap_or((1200.0,760.0));
+            let (width,height) = saved_size(&state,"workspace",(width,height),(780.0,520.0),monitor.as_ref());
             window.set_min_size(Some(LogicalSize::new(780.0,520.0))).map_err(|e| e.to_string())?;
             if previous != mode {
                 window.set_size(LogicalSize::new(width,height)).map_err(|e| e.to_string())?;
                 window.center().map_err(|e| e.to_string())?;
             }
+            apply_window_material(window, blur_enabled(&state))?;
+            set_webview_idle(window, false);
+            window.show().map_err(|e| e.to_string())?;
+            window.set_focus().map_err(|e| e.to_string())?;
         }
-        _ => return Err("Modo de janela inválido.".into()),
+        _ => unreachable!(),
     }
-    if mode != "capsule" {
-        #[cfg(windows)]
-        if let Err(error) = apply_window_material(&window, blur_enabled(&state)) { eprintln!("Material do editor: {error}"); }
-        set_webview_idle(&window, false);
-        window.show().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-    }
-    round_window(&window.as_ref().window())?;
-    round_window(&capsule.as_ref().window())?;
     *state.mode.lock().map_err(|e| e.to_string())? = mode.into();
     let _ = app.emit("topnote:mode",mode);
-    if let Some((from, to)) = opening {
-        let (app, window) = (app.clone(), window.clone());
-        std::thread::spawn(move || {
-            // A WebView that was hidden needs a couple of frames for its first paint;
-            // springing during that paint is what made the start stutter.
-            #[cfg(windows)]
-            for _ in 0..2 { unsafe { windows_sys::Win32::Graphics::Dwm::DwmFlush(); } }
-            if animate(&app, &window, from, to, |state| &state.motion, generation, 0.3, 0.92) {
-                let _ = window.set_min_size(Some(LogicalSize::new(420.0,340.0)));
-                let _ = app.emit_to("main","topnote:window-motion",MotionEvent { phase:"idle", width:0.0, height:0.0, anchor:"center" });
-            }
-        });
-    }
-    Ok(())
+    if mode == "capsule" || mode == "hidden" { schedule_unload(app); }
+    else { state.idle.fetch_add(1, Ordering::SeqCst); }
+    Ok(anchor)
 }
 
 pub fn change_hotkey(app: &tauri::AppHandle, state: &AppState, value: &str) -> Result<(), String> {

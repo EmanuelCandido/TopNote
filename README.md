@@ -11,20 +11,24 @@
 </p>
 
 <p align="center">
-  <img alt="Versão 0.1.3" src="https://img.shields.io/badge/vers%C3%A3o-0.1.3-4387e8" />
+  <img alt="Versão 0.1.4" src="https://img.shields.io/badge/vers%C3%A3o-0.1.4-4387e8" />
   <img alt="Windows 10 e 11" src="https://img.shields.io/badge/plataforma-Windows%2010%20%7C%2011-0078d4" />
   <img alt="Licença MIT" src="https://img.shields.io/badge/licen%C3%A7a-MIT-31a17f" />
   <img alt="Dados locais" src="https://img.shields.io/badge/dados-100%25%20locais-333b4d" />
 </p>
 
 <p align="center">
-  <a href="releases/TopNote_0.1.3_x64-setup.exe"><strong>Baixar para Windows</strong></a>
+  <a href="releases/TopNote_0.1.4_x64-setup.exe"><strong>Baixar para Windows</strong></a>
   · <a href="#como-funciona">Como funciona</a>
   · <a href="#para-desenvolvedores">Para desenvolvedores</a>
   · <a href="https://github.com/EmanuelCandido/TopNote/issues">Suporte</a>
 </p>
 
-https://github.com/user-attachments/assets/c121b991-9f03-42a8-97b4-158a195280ec
+<p align="center">
+  <a href="docs/TopNote.mp4"><img src="docs/TopNote.png" alt="TopNote funcionando no Windows: captura rápida, projetos, busca e Workspace" width="860" /></a>
+  <br />
+  <a href="docs/TopNote.mp4"><strong>▶ Assistir ao vídeo (1 min 20 s)</strong></a>
+</p>
 
 ## Anotar não deveria custar o seu foco
 
@@ -62,20 +66,20 @@ O **TopNote** resolve isso com uma cápsula discreta no topo da tela. Um atalho 
 | **Edição** | Texto formatado, listas, checklists, links, imagens, blocos de código e histórico de versões da nota. |
 | **Arquivos** | Anexos por seleção, colagem ou arraste. Abra o arquivo, localize-o no Explorer ou copie-o para outra pasta arrastando pelo nome. |
 | **Busca** | Pesquisa de notas e comandos com `Ctrl + K`. |
-| **Aparência** | Tema claro, escuro ou do sistema, transparência com desfoque do Windows, escala da interface e opção de desligar animações. |
+| **Aparência** | Visual sólido em grafite, tema claro, escuro ou do sistema, escala da interface e opção de desligar animações. |
 | **Controle** | Atalho, monitor, comportamento da cápsula, inicialização com o Windows e backups. |
 
 ## Instalação
 
-1. Baixe o [instalador do TopNote 0.1.3 para Windows 64 bits](releases/TopNote_0.1.3_x64-setup.exe).
+1. Baixe o [instalador do TopNote 0.1.4 para Windows 64 bits](releases/TopNote_0.1.4_x64-setup.exe).
 2. Execute o arquivo e abra **TopNote** pelo menu Iniciar.
 3. Conclua a apresentação inicial e use `Ctrl + Shift + Space` para criar sua primeira nota.
 
-**Requisitos:** Windows 10 (versão 1809 ou mais recente) ou Windows 11, 64 bits. O aplicativo usa o WebView2, que já acompanha o Windows 11; se faltar, a instalação pode pedir acesso à internet. Para bom desempenho, recomendamos 8 GB de RAM; com 4 GB funciona, e desligar o desfoque e as animações nas configurações ajuda em computadores mais modestos.
+**Requisitos:** Windows 10 (versão 1809 ou mais recente) ou Windows 11, 64 bits. O aplicativo usa o WebView2, que já acompanha o Windows 11; se faltar, a instalação pode pedir acesso à internet. Para bom desempenho, recomendamos 8 GB de RAM; com 4 GB funciona, e desligar as animações nas configurações ajuda em computadores mais modestos.
 
 **Segurança:** o instalador ainda não tem assinatura digital, então o SmartScreen pode exibir um aviso. Confira a origem e o hash antes de executar.
 
-**SHA-256 do instalador 0.1.3:** `578AEB5532A44040BFAF6E004B676927A5C3581243F7F8A1113C73E3B932E6D1`
+**SHA-256 do instalador 0.1.4:** `F2CA3E56A9507168C084C6D961B955368B21F3278A5E859F804981BFC7F84F11`
 
 ### Atalhos principais
 
@@ -132,6 +136,7 @@ Para gerar o executável e o instalador NSIS, execute `npm run desktop:build` na
 | [`src/`](src/) | Interface, editor, componentes, estilos e animações |
 | [`src-tauri/`](src-tauri/) | Aplicativo nativo, janelas, banco, anexos e backup |
 | [`releases/`](releases/) | Instaladores compartilháveis |
+| [`docs/`](docs/) | Vídeo de demonstração e capa |
 
 ## Suporte e contribuição
 

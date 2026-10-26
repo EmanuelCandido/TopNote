@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
@@ -9,18 +10,22 @@ import type { Attachment, Folder, Mode, Note, NoteSummary, Project, SaveStatus, 
 import { api } from './services/api'
 import { Autosave } from './services/autosave'
 import { formatDate, removeImage, toMarkdown } from './services/format'
-import { toHtml } from './services/export'
-import { Sidebar } from './components/Sidebar'
 import { BrandIcon } from './components/BrandIcon'
-import { NoteList } from './components/NoteList'
-import { NoteDetail } from './components/NoteDetail'
-import { CommandPalette, type PaletteCommand } from './components/CommandPalette'
-import { Onboarding } from './components/Onboarding'
-import { Settings } from './components/Settings'
+import { loadEditor, NoteDetail } from './components/NoteDetail'
+import type { PaletteCommand } from './components/CommandPalette'
 import { ResizeHandles } from './components/ResizeHandles'
+import { ProjectsSheet } from './components/ProjectsSheet'
+import { DialogHost, type DialogRequest } from './components/DialogHost'
 import { useAppearance } from './hooks/useAppearance'
 import { isWindowHeader, useWindowDrag } from './hooks/useWindowDrag'
-import { useWindowMotion } from './hooks/useWindowMotion'
+import { usePanelMotion } from './hooks/usePanelMotion'
+
+// The quick editor is what opens most; everything else loads the first time it is needed.
+const Sidebar = lazy(() => import('./components/Sidebar').then(module => ({default:module.Sidebar})))
+const NoteList = lazy(() => import('./components/NoteList').then(module => ({default:module.NoteList})))
+const Settings = lazy(() => import('./components/Settings').then(module => ({default:module.Settings})))
+const CommandPalette = lazy(() => import('./components/CommandPalette').then(module => ({default:module.CommandPalette})))
+const Onboarding = lazy(() => import('./components/Onboarding').then(module => ({default:module.Onboarding})))
 
 type Dialog = { type: 'project'; project?: Project } | { type: 'folder'; projectId: string; folder?: Folder } | { type: 'versions' } | null
 type ContextMenu = { type: 'note'; note: NoteSummary; x: number; y: number } | { type: 'project'; project: Project; x: number; y: number } | { type: 'folder'; folder: Folder; x: number; y: number } | null
@@ -29,11 +34,10 @@ export default function App() {
   useAppearance()
   const workspaceDrag = useWindowDrag(isWindowHeader)
   const [mode, setModeState] = useState<Mode>('capsule')
-  const windowMotion = useWindowMotion(mode)
-  const motion = windowMotion.motion
+  const panelMotion = usePanelMotion()
   // The panel stays mounted between openings, so focus the note each time it opens.
   useEffect(() => {
-    if (mode !== 'quick' || motion.phase !== 'idle') return
+    if (mode !== 'quick') return
     const timer = setTimeout(() => {
       const editor = document.querySelector<HTMLElement>('.quick-panel .ProseMirror')
       const active = document.activeElement
@@ -46,7 +50,7 @@ export default function App() {
       document.getSelection()?.addRange(range)
     }, 20)
     return () => clearTimeout(timer)
-  }, [mode, motion.phase])
+  }, [mode])
   const [page, setPage] = useState<'notes' | 'settings'>('notes')
   const [projects, setProjects] = useState<Project[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
@@ -67,6 +71,7 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState<ContextMenu>(null)
   const [quickFavorites, setQuickFavorites] = useState(false)
   const [quickProjectsOpen, setQuickProjectsOpen] = useState(false)
+  const [dialogRequest, setDialogRequest] = useState<DialogRequest | null>(null)
   const [favoriteNotes, setFavoriteNotes] = useState<NoteSummary[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
@@ -76,12 +81,14 @@ export default function App() {
   const navigationRef = useRef(0)
   const noteRef = useRef<Note | null>(null)
   const modeRef = useRef<Mode>(mode)
-  const quickProjectsOpenRef = useRef(false)
+  const modeQueueRef = useRef(Promise.resolve())
+  const initialLoad = useRef<{ done: Promise<void>; finish: () => void } | null>(null)
+  if (!initialLoad.current) { let finish = () => {}; const done = new Promise<void>(resolve => { finish = resolve }); initialLoad.current = { done, finish } }
   const viewRef = useRef({ view, targetId })
   noteRef.current = note
   modeRef.current = mode
   viewRef.current = { view, targetId }
-  const handlersRef = useRef({} as { navigate: (action: string) => void; close: () => void; mode: (next: Mode) => void; requestMode: (next: string) => void; projectSelected: (id: string | null) => void; quickNoteSelected: (value: {noteId:string;projectId:string|null}) => void; quickNoteNew: (id: string | null) => void; projectSaved: (value: {id:string;isNew:boolean}) => void; folderSaved: (value: {id:string;projectId:string;isNew:boolean}) => void; restoreVersion: (id:string) => void })
+  const handlersRef = useRef({} as { navigate: (action: string) => void; close: () => void; quit: () => void; mode: (next: Mode) => void; requestMode: (next: string) => void })
   const autosaveRef = useRef<Autosave | null>(null)
   if (!autosaveRef.current) autosaveRef.current = new Autosave(async patch => {
     const saved = await api.saveNote(patch)
@@ -104,7 +111,8 @@ export default function App() {
 
   useEffect(() => {
     let active = true
-    void Promise.all([api.settings(),api.projects(),api.folders(),api.notes('all',null,0),api.dataDirectory(),api.mode()]).then(async ([preferences,allProjects,allFolders,allNotes,path,currentMode]) => {
+    // The editor chunk loads alongside the first queries, so the panel never shows it arriving late.
+    void Promise.all([api.settings(),api.projects(),api.folders(),api.notes('all',null,0),api.dataDirectory(),api.mode(),loadEditor()]).then(async ([preferences,allProjects,allFolders,allNotes,path,currentMode]) => {
       let previous: Note | null = null
       for (const id of [...new Set([preferences.lastNoteId,allNotes[0]?.id].filter((id): id is string => Boolean(id)))]) {
         const candidate = await api.note(id).catch(() => null)
@@ -131,7 +139,7 @@ export default function App() {
       modeRef.current = currentMode
       setModeState(currentMode)
       setLoading(false)
-    }).catch(showError)
+    }).catch(showError).finally(() => initialLoad.current!.finish())
     return () => { active = false }
   }, [showError])
 
@@ -147,23 +155,15 @@ export default function App() {
       const events = await Promise.all([
         listen<string>('topnote:mode', event => handlersRef.current.mode(event.payload as Mode)),
         listen<string>('topnote:request-mode', event => handlersRef.current.requestMode(event.payload)),
-        listen<string | null>('topnote:project-selected', event => handlersRef.current.projectSelected(event.payload)),
-        listen<{noteId:string;projectId:string|null}>('topnote:quick-note-selected', event => handlersRef.current.quickNoteSelected(event.payload)),
-        listen<string | null>('topnote:quick-note-new', event => handlersRef.current.quickNoteNew(event.payload)),
-        listen<{id:string;isNew:boolean}>('topnote:project-saved', event => handlersRef.current.projectSaved(event.payload)),
-        listen<{id:string;projectId:string;isNew:boolean}>('topnote:folder-saved', event => handlersRef.current.folderSaved(event.payload)),
-        listen<string>('topnote:restore-version', event => handlersRef.current.restoreVersion(event.payload)),
-        listen<boolean>('topnote:projects-visible',event => { quickProjectsOpenRef.current = event.payload; setQuickProjectsOpen(event.payload) }),
         listen<string>('topnote:navigate', event => handlersRef.current.navigate(event.payload)),
         listen('topnote:close-requested', () => handlersRef.current.close()),
-        listen('topnote:quit-requested', () => { void autosave.flush().then(ok => { if (ok) void api.quit() }) }),
+        listen('topnote:quit-requested', () => handlersRef.current.quit()),
         getCurrentWindow().onResized(event => {
           const currentMode = modeRef.current
           clearTimeout(resizeTimer)
           if (currentMode !== 'quick' && currentMode !== 'workspace') return
-          if (windowMotion.ref.current.phase !== 'idle') return
           resizeTimer = setTimeout(() => {
-            if (modeRef.current !== currentMode || windowMotion.ref.current.phase !== 'idle') return
+            if (modeRef.current !== currentMode) return
             void getCurrentWindow().scaleFactor().then(scale => {
               const width = Math.round(event.payload.width / scale)
               const height = Math.round(event.payload.height / scale)
@@ -180,8 +180,18 @@ export default function App() {
           }
         }),
       ])
-      if (active) unlisteners.push(...events)
-      else events.forEach(stop => stop())
+      if (!active) { events.forEach(stop => stop()); return }
+      unlisteners.push(...events)
+      // Events sent while this page was unloaded or starting (the capsule click that woke it,
+      // the hotkey) wait in Rust until the notes are loaded and the listeners are in place.
+      await initialLoad.current!.done
+      if (!active) return
+      for (const { event, payload } of await api.mainReady()) {
+        if (event === 'topnote:request-mode') handlersRef.current.requestMode(payload)
+        else if (event === 'topnote:navigate') handlersRef.current.navigate(payload)
+        else if (event === 'topnote:close-requested') handlersRef.current.close()
+        else if (event === 'topnote:quit-requested') handlersRef.current.quit()
+      }
     }
     void register().catch(showError)
     return () => { active = false; clearTimeout(resizeTimer); unlisteners.forEach(stop => stop()) }
@@ -298,26 +308,46 @@ export default function App() {
     } catch (failure) { showError(failure) }
     finally { creatingNoteRef.current = false }
   }
-  async function setMode(next: Mode) {
-    if (!(await autosave.flush())) return
-    // Keep the panel mounted while the native window folds back into the capsule.
-    if (modeRef.current === 'quick' && next === 'capsule' && document.documentElement.dataset.motion !== 'reduced') windowMotion.begin('closing')
-    try { await api.setMode(next); modeRef.current = next; setModeState(next) }
-    catch (failure) { showError(failure) }
+  /** Mode changes run one at a time, so a toggle pressed mid-animation applies after it. */
+  function setMode(next: Mode | 'toggle') {
+    const run = modeQueueRef.current.then(() => applyMode(next === 'toggle' ? (modeRef.current === 'quick' ? 'capsule' : 'quick') : next))
+    modeQueueRef.current = run.catch(() => {})
+    return run
   }
-  async function toggleQuickProjects() {
-    if (modeRef.current !== 'quick') return
-    const next = !quickProjectsOpenRef.current
+  async function applyMode(next: Mode) {
+    const previous = modeRef.current
+    const animate = document.documentElement.dataset.motion !== 'reduced'
+    const folding = previous === 'quick' && next === 'capsule' && animate
+    // Saving and asking where the capsule is go out together, so the fold starts after one round trip.
+    const [saved, foldAnchor] = await Promise.all([autosave.flush(), folding ? api.motionAnchor().catch(() => null) : null])
+    if (!saved) return
     try {
-      if (next) {
-        // The panel springs out of (and later folds back into) the project button.
-        const trigger = document.querySelector('.quick-project-trigger')?.getBoundingClientRect()
-        await api.showProjects(noteRef.current?.projectId ?? null, trigger ? [trigger.x, trigger.y, trigger.width, trigger.height] : null)
+      if (next === 'capsule' || next === 'hidden') {
+        setQuickProjectsOpen(false)
+        // Fold back into the capsule, or at least leave a clear frame behind for the next show.
+        if (folding) await panelMotion.close(foldAnchor)
+        else if (previous === 'quick' || previous === 'workspace') await panelMotion.conceal()
+        await api.setMode(next)
+        modeRef.current = next; setModeState(next)
+        return
       }
-      else await api.hideProjects()
-    } catch (failure) {
-      showError(failure)
-    }
+      const entering = next === 'quick' && (previous === 'capsule' || previous === 'hidden')
+      if (entering && animate) panelMotion.prepare()
+      const anchor = await api.setMode(next, entering && animate)
+      // Commit the mode now (not on React's schedule), so the panel is laid out before anything moves.
+      modeRef.current = next; flushSync(() => setModeState(next))
+      // The quick panel is shown without focus, so it can appear at once; focus follows.
+      const activate = () => { if (next === 'quick') void api.activateWindow().catch(showError) }
+      if (!anchor) { panelMotion.reset(); activate(); return }
+      // The window just became visible: let it paint the hidden panel once, so the entrance never waits on a raster.
+      await panelMotion.warm()
+      // The window is already at its final size; only the panel grows out of the capsule.
+      void panelMotion.open(anchor).catch(showError)
+      activate()
+    } catch (failure) { panelMotion.reset(); showError(failure) }
+  }
+  function toggleQuickProjects() {
+    if (modeRef.current === 'quick') setQuickProjectsOpen(open => !open)
   }
   async function selectQuickProject(id: string | null) {
     if (!(await autosave.flush())) return
@@ -328,8 +358,7 @@ export default function App() {
       const choices = await api.notes(nextView,id)
       if (choices.length) await openNote(choices[0].id)
       else await createNote(false)
-      await api.hideProjects()
-      await getCurrentWindow().setFocus()
+      setQuickProjectsOpen(false)
     } finally { favoritesRequestRef.current = false }
   }
   async function selectQuickNote({noteId,projectId}: {noteId:string;projectId:string|null}) {
@@ -338,8 +367,7 @@ export default function App() {
     try {
       await selectView(projectId ? 'project' : 'all',projectId)
       await openNote(noteId)
-      await api.hideProjects()
-      await getCurrentWindow().setFocus()
+      setQuickProjectsOpen(false)
     } finally { favoritesRequestRef.current = false }
   }
   async function createQuickNote(projectId: string | null) {
@@ -348,8 +376,7 @@ export default function App() {
     try {
       await selectView(projectId ? 'project' : 'all',projectId)
       await createNote(false,projectId)
-      await api.hideProjects()
-      await getCurrentWindow().setFocus()
+      setQuickProjectsOpen(false)
     } finally { favoritesRequestRef.current = false }
   }
   async function createWorkspaceProjectNote(projectId: string) {
@@ -387,14 +414,9 @@ export default function App() {
   handlersRef.current = {
     navigate: action => { if (action === 'new') void newFromCapsule(); if (action === 'favorites') void showFavorites(); if (action === 'settings') void openSettings(); if (action === 'search') { void setMode(modeRef.current === 'workspace' ? 'workspace' : 'quick').then(() => setPalette('all')) } },
     close: () => { void closeRequested() },
-    mode: next => { modeRef.current = next; setModeState(next); if (next !== 'quick') { quickProjectsOpenRef.current = false; setQuickProjectsOpen(false) } },
-    requestMode: next => { void setMode(next === 'toggle' ? (modeRef.current === 'quick' ? 'capsule' : 'quick') : next as Mode) },
-    projectSelected: id => { void selectQuickProject(id).catch(showError) },
-    quickNoteSelected: value => { void selectQuickNote(value).catch(showError) },
-    quickNoteNew: id => { void createQuickNote(id).catch(showError) },
-    projectSaved: value => { void projectSaved(value).catch(showError) },
-    folderSaved: value => { void folderSaved(value).catch(showError) },
-    restoreVersion: id => { void restoreVersion(id) },
+    quit: () => { void autosave.flush().then(ok => { if (ok) void api.quit() }) },
+    mode: next => { modeRef.current = next; setModeState(next); if (next !== 'quick') setQuickProjectsOpen(false) },
+    requestMode: next => { void setMode(next as Mode | 'toggle') },
   }
 
   useEffect(() => {
@@ -403,9 +425,10 @@ export default function App() {
       if (ctrl && event.key.toLowerCase() === 'k') { event.preventDefault(); if (modeRef.current === 'capsule') void setMode('quick'); setPalette('all') }
       else if (ctrl && event.shiftKey && event.key.toLowerCase() === 'n') { event.preventDefault(); setDialog({ type:'project' }) }
       else if (ctrl && event.key.toLowerCase() === 'n') { event.preventDefault(); if (modeRef.current === 'quick') void createQuickNote(noteRef.current?.projectId ?? null).catch(showError); else void createNote() }
-      else if (ctrl && event.key.toLowerCase() === 'p') { event.preventDefault(); if (modeRef.current === 'quick') void toggleQuickProjects(); else setPalette('projects') }
+      else if (ctrl && event.key.toLowerCase() === 'p') { event.preventDefault(); if (modeRef.current === 'quick') toggleQuickProjects(); else setPalette('projects') }
       else if (ctrl && event.key === 'Enter') { event.preventDefault(); void autosave.flush() }
-      else if (event.key === 'Escape' && !palette && !contextMenu && modeRef.current === 'quick' && !event.defaultPrevented) { event.preventDefault(); if (quickProjectsOpenRef.current) void api.hideProjects(); else void setMode('capsule') }
+      // The projects sheet and dialogs handle their own Escape first.
+      else if (event.key === 'Escape' && !palette && !contextMenu && modeRef.current === 'quick' && !event.defaultPrevented) { event.preventDefault(); void setMode('capsule') }
     }
     window.addEventListener('keydown',handle)
     const beforeUnload = () => { void autosave.flush() }
@@ -413,10 +436,12 @@ export default function App() {
     return () => { window.removeEventListener('keydown',handle); window.removeEventListener('beforeunload',beforeUnload) }
   }, [palette,contextMenu,autosave,folders,settings,onboarding])
 
+  const closeDialog = useCallback(() => setDialogRequest(null), [])
+  const closeQuickProjects = useCallback(() => setQuickProjectsOpen(false), [])
   function setDialog(value: Dialog) {
-    if (!value) { void api.hideDialog().catch(showError); return }
+    if (!value) { setDialogRequest(null); return }
     const id = value.type === 'project' ? value.project?.id : value.type === 'folder' ? value.folder?.id : noteRef.current?.id
-    void api.showDialog(value.type,id,value.type === 'folder' ? value.projectId : undefined).catch(showError)
+    setDialogRequest({ key: Date.now(), kind: value.type, id: id ?? null, projectId: value.type === 'folder' ? value.projectId : null })
   }
   async function projectSaved({id,isNew}: {id:string;isNew:boolean}) {
     setProjects(await api.projects())
@@ -429,7 +454,7 @@ export default function App() {
     if (isNew) await selectView('folder',id)
   }
   async function projectAction(id: string, action: string) {
-    try { await api.projectState(id,action); setProjects(await api.projects()); await emit('topnote:projects-changed'); setContextMenu(null); if (targetId === id) await selectView('all') }
+    try { await api.projectState(id,action); setProjects(await api.projects()); setContextMenu(null); if (targetId === id) await selectView('all') }
     catch (failure) { showError(failure) }
   }
   async function folderAction(id: string, deleted: boolean) {
@@ -547,7 +572,7 @@ export default function App() {
       if (!['md','txt','json','html'].includes(choice)) { showError('Formato inválido. Escolha md, txt, json ou html.'); return }
       const path = await save({ defaultPath:`${(current.title || 'nota').replace(/[<>:"/\\|?*]/g,'_')}.${choice}`, filters:[{name:choice.toUpperCase(),extensions:[choice]}] })
       if (!path) return
-      const content = choice === 'txt' ? current.contentText : choice === 'json' ? JSON.stringify({title:current.title,content:JSON.parse(current.contentJson),createdAt:current.createdAt,updatedAt:current.updatedAt},null,2) : choice === 'html' ? toHtml(current.title,current.contentJson) : `# ${current.title || 'Sem título'}\n\n${toMarkdown(current.contentJson)}`
+      const content = choice === 'txt' ? current.contentText : choice === 'json' ? JSON.stringify({title:current.title,content:JSON.parse(current.contentJson),createdAt:current.createdAt,updatedAt:current.updatedAt},null,2) : choice === 'html' ? (await import('./services/export')).toHtml(current.title,current.contentJson) : `# ${current.title || 'Sem título'}\n\n${toMarkdown(current.contentJson)}`
       await api.exportFile(path,content)
       notify('Nota exportada')
     } catch (failure) { showError(failure) }
@@ -565,12 +590,11 @@ export default function App() {
     const current = noteRef.current
     if (!current) return
     if (!(await autosave.flush())) return
-    try { await api.showDialog('versions',current.id) }
-    catch (failure) { showError(failure) }
+    setDialog({ type:'versions' })
   }
   async function restoreVersion(id: string) {
     if (!(await autosave.flush())) return
-    try { const restored = await api.restoreVersion(id); noteRef.current = restored; setNote(restored); await api.hideDialog(); await loadNotes(); notify('Versão restaurada') }
+    try { const restored = await api.restoreVersion(id); noteRef.current = restored; setNote(restored); setDialogRequest(null); await loadNotes(); notify('Versão restaurada') }
     catch (failure) { showError(failure) }
   }
   async function finishOnboarding(example: boolean) {
@@ -602,16 +626,18 @@ export default function App() {
 
   const detailProps = note ? { note, projects, folders, tags, attachments, status:saveStatus, onUpdate:updateNote, onFiles:importFiles, onPick:pickFiles, onTags:setNoteTags, onRemoveAttachment:removeAttachment, onState:(action:string) => noteAction(note.id,action), onWorkspace:() => { void openWorkspace() }, onCapsule:() => { void setMode('capsule') }, onSearch:() => setPalette('all'), onSettings:() => { void openSettings() }, onVersions:() => { void showVersions() }, onExport:() => { void exportNote(note.id) }, onRetry:() => { void autosave.flush() } } : null
 
-  const shownMode: Mode = motion.phase === 'closing' && mode === 'capsule' ? 'quick' : mode
-  const motionStyle = motion.phase === 'idle' ? undefined : { '--motion-width': `${motion.width}px`, '--motion-height': `${motion.height}px` } as CSSProperties
-  return <div className={`app app-${shownMode}`} data-window-motion={motion.phase === 'idle' ? undefined : motion.phase} style={motionStyle}>
-    {motion.phase === 'idle' && (mode === 'quick' || mode === 'workspace') && <ResizeHandles minWidth={mode === 'workspace' ? 780 : 420} minHeight={mode === 'workspace' ? 520 : 340}/>}
-    {(shownMode === 'quick' || shownMode === 'capsule' || shownMode === 'hidden') && <div className="quick-stage"><div className="quick-panel">{onboarding ? <Onboarding onFinish={finishOnboarding}/> : quickFavorites ? <div className="quick-favorites"><div className="quick-favorites-head"><button className="icon-button" onClick={() => setQuickFavorites(false)}><ArrowLeft size={18}/></button><Star size={17}/>Favoritos<button className="icon-button quick-favorites-close" onClick={() => { void setMode('capsule') }}><X size={18}/></button></div><div className="quick-favorites-list">{favoriteNotes.length === 0 ? <div className="quick-favorites-empty">Nenhuma nota fixada ainda.</div> : favoriteNotes.map(item => <button key={item.id} onClick={() => { void openNote(item.id) }}><strong>{item.title || 'Sem título'}</strong><span>{item.preview || formatDate(item.updatedAt)}</span></button>)}</div><button className="quick-favorites-workspace" onClick={() => { void openWorkspace() }}>Abrir Workspace</button></div> : detailProps ? <NoteDetail {...detailProps} compact projectsOpen={quickProjectsOpen} onToggleProjects={() => { void toggleQuickProjects() }} onNewQuickNote={() => { void createQuickNote(noteRef.current?.projectId ?? null).catch(showError) }}/> : <div className="quick-loading"><BrandIcon/><p>{loading ? 'Carregando…' : 'Preparando nota…'}</p><button className="primary-button" onClick={() => { void createNote(true) }}>Nova nota</button></div>}</div></div>}
+  // data-window-motion is driven imperatively by usePanelMotion; React never renders it.
+  return <div ref={panelMotion.app} className={`app app-${mode}`}>
+    {(mode === 'quick' || mode === 'workspace') && <ResizeHandles/>}
+    {(mode === 'quick' || mode === 'capsule' || mode === 'hidden') && <div className="quick-stage"><div ref={panelMotion.panel} className="quick-panel">{onboarding ? <Suspense fallback={null}><Onboarding onFinish={finishOnboarding}/></Suspense> : quickFavorites ? <div className="quick-favorites"><div className="quick-favorites-head"><button className="icon-button" onClick={() => setQuickFavorites(false)}><ArrowLeft size={18}/></button><Star size={17}/>Favoritos<button className="icon-button quick-favorites-close" onClick={() => { void setMode('capsule') }}><X size={18}/></button></div><div className="quick-favorites-list">{favoriteNotes.length === 0 ? <div className="quick-favorites-empty">Nenhuma nota fixada ainda.</div> : favoriteNotes.map(item => <button key={item.id} onClick={() => { void openNote(item.id) }}><strong>{item.title || 'Sem título'}</strong><span>{item.preview || formatDate(item.updatedAt)}</span></button>)}</div><button className="quick-favorites-workspace" onClick={() => { void openWorkspace() }}>Abrir Workspace</button></div> : detailProps ? <NoteDetail {...detailProps} compact projectsOpen={quickProjectsOpen} onToggleProjects={toggleQuickProjects} onNewQuickNote={() => { void createQuickNote(noteRef.current?.projectId ?? null).catch(showError) }}/> : <div className="quick-loading"><BrandIcon/><p>{loading ? 'Carregando…' : 'Preparando nota…'}</p><button className="primary-button" onClick={() => { void createNote(true) }}>Nova nota</button></div>}
+      {quickProjectsOpen && mode === 'quick' && <ProjectsSheet projects={projects} selectedId={noteRef.current?.projectId ?? null} onClose={closeQuickProjects} onOpenNote={item => { void selectQuickNote({noteId:item.id,projectId:item.projectId}).catch(showError) }} onNewNote={id => { void createQuickNote(id).catch(showError) }} onNewProject={() => setDialog({type:'project'})} onEditProject={project => setDialog({type:'project',project})}/>}
+    </div></div>}
     {mode === 'workspace' && <header className="workspace-titlebar" {...workspaceDrag.bind}><span><FileText size={16}/>TopNote · Workspace</span><button onClick={() => { void setMode('capsule') }}><ChevronUp size={16}/> Recolher</button></header>}
-    {mode === 'workspace' && <div className="workspace-shell"><Sidebar projects={projects} folders={folders} view={view} targetId={targetId} expanded={expanded} onToggle={id => setExpanded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })} onSelect={(next,target) => { setPage('notes'); void selectView(next,target ?? null) }} onNewProject={() => setDialog({type:'project'})} activeNote={note} notesRevision={notesRevision} onSelectNote={(noteId,projectId) => { void openSidebarProjectNote(noteId,projectId) }} onNewNote={projectId => { void createWorkspaceProjectNote(projectId) }} onProjectMenu={(project,x,y) => setContextMenu({type:'project',project,x,y})} onFolderMenu={(folder,x,y) => setContextMenu({type:'folder',folder,x,y})} onMoveNote={(id,projectId,folderId) => { void moveNote(id,projectId,folderId) }} onReorderProjects={(source,target) => { void reorderProjects(source,target) }} onReorderFolders={(source,target) => { void reorderFolders(source,target) }}/>
+    {mode === 'workspace' && <Suspense fallback={null}><div className="workspace-shell"><Sidebar projects={projects} folders={folders} view={view} targetId={targetId} expanded={expanded} onToggle={id => setExpanded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })} onSelect={(next,target) => { setPage('notes'); void selectView(next,target ?? null) }} onNewProject={() => setDialog({type:'project'})} activeNote={note} notesRevision={notesRevision} onSelectNote={(noteId,projectId) => { void openSidebarProjectNote(noteId,projectId) }} onNewNote={projectId => { void createWorkspaceProjectNote(projectId) }} onProjectMenu={(project,x,y) => setContextMenu({type:'project',project,x,y})} onFolderMenu={(folder,x,y) => setContextMenu({type:'folder',folder,x,y})} onMoveNote={(id,projectId,folderId) => { void moveNote(id,projectId,folderId) }} onReorderProjects={(source,target) => { void reorderProjects(source,target) }} onReorderFolders={(source,target) => { void reorderFolders(source,target) }}/>
       {page === 'settings' ? <Settings settings={settings} dataPath={dataPath} onSet={setSetting} onBackup={backup} onRestore={restore} onBack={() => setPage('notes')}/> : <><NoteList title={title} view={view} notes={notes} selectedId={note?.id ?? null} loading={loading} onSelect={id => { void openNote(id) }} onNew={() => { void createNote() }} onSearch={() => setPalette('all')} onMenu={(item,x,y) => setContextMenu({type:'note',note:item,x,y})} onEmptyTrash={() => { if (window.confirm('Excluir permanentemente todas as notas da lixeira?')) void api.emptyTrash().then(() => loadNotes()).catch(showError) }} onLoadMore={() => { void loadMore() }}/>{detailProps ? <NoteDetail {...detailProps} compact={false}/> : <div className="workspace-empty"><div className="workspace-empty-art"><BrandIcon/></div><div className="eyebrow">Seu espaço de ideias</div><h2>Suas notas, em foco.</h2><p>Selecione uma nota na lista ou crie uma nova para começar.</p><button className="primary-button" onClick={() => { void createNote() }}><Plus size={16}/>Nova nota</button><div className="empty-shortcut"><Keyboard size={14}/>Ctrl + Shift + Space para capturar rapidamente</div></div>}</>}
-    </div>}
-    {palette && <CommandPalette commands={paletteCommands} onOpenNote={id => { void openNote(id) }} onClose={() => setPalette(null)}/>}
+    </div></Suspense>}
+    {palette && <Suspense fallback={null}><CommandPalette commands={paletteCommands} onOpenNote={id => { void openNote(id) }} onClose={() => setPalette(null)}/></Suspense>}
+    {dialogRequest && <DialogHost request={dialogRequest} onClose={closeDialog} onProjectSaved={value => { void projectSaved(value).catch(showError) }} onFolderSaved={value => { void folderSaved(value).catch(showError) }} onRestoreVersion={id => { void restoreVersion(id) }}/>}
 
 
 

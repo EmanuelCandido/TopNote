@@ -1,5 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { ExternalLink, FolderOpen, GripVertical, Paperclip, Trash2, X } from 'lucide-react'
+import { ExternalLink, FolderOpen, GripVertical, Paperclip, Plus, Trash2, X } from 'lucide-react'
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Attachment } from '../types'
 import { formatBytes } from '../services/format'
@@ -21,7 +21,9 @@ function fileBadge(item: Attachment): { label: string; kind: string } {
 
 type DragPress = { id: string; pointerId: number; x: number; y: number }
 
-export function AttachmentsPanel({ attachments, onRemove }: { attachments: Attachment[]; onRemove: (attachment: Attachment) => void }) {
+type Props = { attachments: Attachment[]; onRemove: (attachment: Attachment) => void; onAdd?: () => void; onClose?: () => void }
+
+export function AttachmentsPanel({ attachments, onRemove, onAdd, onClose }: Props) {
   const [preview, setPreview] = useState<Attachment | null>(null)
   const [dragError, setDragError] = useState('')
   const [actionError, setActionError] = useState('')
@@ -59,8 +61,10 @@ export function AttachmentsPanel({ attachments, onRemove }: { attachments: Attac
   }
 
   return <>
-    <div className="property-section"><div className="property-heading"><Paperclip size={15}/>Anexos <span>{attachments.length}</span></div>
-      {attachments.length === 0 && <p className="property-empty">Arraste ou cole arquivos no editor.</p>}
+    <div className="property-section"><div className="property-heading"><Paperclip size={15}/>Anexos <span>{attachments.length || ''}</span>{onAdd && attachments.length > 0 && <button className="attachments-heading-button" title="Anexar arquivo" aria-label="Anexar arquivo" onClick={onAdd}><Plus size={15}/></button>}{onClose && <button className="attachments-heading-button" title="Fechar" aria-label="Fechar anexos" onClick={onClose}><X size={15}/></button>}</div>
+      {attachments.length === 0 && (onAdd
+        ? <div className="attachments-empty"><span className="attachments-empty-icon"><Paperclip size={20}/></span><p>Nenhum arquivo nesta nota.<br/>Arraste, cole no editor ou escolha um arquivo.</p><button className="secondary-button" onClick={onAdd}><Plus size={15}/>Escolher arquivos</button></div>
+        : <p className="property-empty">Arraste ou cole arquivos no editor.</p>)}
       {attachments.map(item => {
         const badge = fileBadge(item)
         return <div className="attachment-row" key={item.id} title="Arraste para copiar este arquivo para outra pasta"

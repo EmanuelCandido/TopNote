@@ -37,13 +37,14 @@ export const api = {
   restoreBackup: (source: string) => invoke<void>('restore_backup', { source }),
   exportFile: (path: string, content: string) => invoke<void>('export_note_file', { path, content }),
   importText: (path: string, projectId: string | null) => invoke<Note>('import_text_note', { path, projectId }),
-  setMode: (mode: string) => invoke<void>('set_window_mode', { mode }),
+  /** Returns the capsule rect (logical, relative to the window) when the panel should grow out of it. */
+  setMode: (mode: string, animate = false) => invoke<[number, number, number, number] | null>('set_window_mode', { mode, animate }),
+  /** Focuses the quick panel, which set_window_mode shows without activating. */
+  activateWindow: () => invoke<void>('activate_window'),
   mode: () => invoke<Mode>('get_window_mode'),
-  showProjects: (selectedId: string | null, origin: [number, number, number, number] | null = null) => invoke<void>('show_projects', {selectedId, origin}),
-  hideProjects: () => invoke<void>('hide_projects'),
+  motionAnchor: () => invoke<[number, number, number, number] | null>('motion_anchor'),
+  mainReady: () => invoke<{ event: string; payload: string }[]>('main_ready'),
   isAppFocused: () => invoke<boolean>('is_app_focused'),
-  showDialog: (kind: 'project' | 'folder' | 'versions', id?: string, projectId?: string) => invoke<void>('show_dialog', { kind, id: id ?? null, projectId: projectId ?? null }),
-  hideDialog: () => invoke<void>('hide_dialog'),
   quit: () => invoke<void>('quit_app'),
   reportError: (message: string) => invoke<void>('report_error', { message }),
 }

@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { ArrowRight, Sparkles } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { BrandIcon } from './BrandIcon'
-import { KeyboardShortcutIcon, OrganizedNotesIcon } from './OnboardingSymbols'
+import { ClippedNoteIcon, KeyboardShortcutIcon, OrganizedNotesIcon } from './OnboardingSymbols'
 
 export function Onboarding({ onFinish }: { onFinish: (example: boolean) => Promise<void> }) {
   const [step, setStep] = useState(0)
   const pages = [
-    { icon: Sparkles, eyebrow: 'Bem-vindo', title: 'Uma ideia, antes que ela passe.', body: 'O TopNote fica ao alcance da mão para capturar pensamentos sem interromper seu trabalho.' },
+    { icon: ClippedNoteIcon, eyebrow: 'Bem-vindo', title: 'Uma ideia, antes que ela passe.', body: 'O TopNote fica ao alcance da mão para capturar pensamentos sem interromper seu trabalho.' },
     { icon: KeyboardShortcutIcon, eyebrow: 'Capture em segundos', title: 'Sempre a um atalho de distância.', body: 'Pressione Ctrl + Shift + Space de qualquer lugar para abrir uma nota. Digite e feche com Esc. Tudo é salvo automaticamente.' },
     { icon: OrganizedNotesIcon, eyebrow: 'Organize no seu tempo', title: 'Anote agora. Organize depois.', body: 'Novas notas começam sem projeto. Quando quiser, mova para um projeto ou pasta no Workspace.' },
   ]

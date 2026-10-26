@@ -1,39 +1,37 @@
 mod attachments;
 mod backup;
+mod capsule;
 mod commands;
 mod db;
 mod native;
 mod repository;
 
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Mutex;
-use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter, Manager};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, RwLock};
+use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Manager, RunEvent};
 use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
-
-#[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DialogRequest {
-    pub(crate) request_id: String,
-    pub(crate) kind: String,
-    pub(crate) id: Option<String>,
-    pub(crate) project_id: Option<String>,
-}
 
 pub struct AppState {
     root: PathBuf,
     db_path: PathBuf,
+    /// One SQLite connection for the whole app, opened at start; commands take turns on it
+    /// instead of opening the file and setting its pragmas on every call.
+    db: Mutex<Connection>,
     mode: Mutex<String>,
     hotkey: Mutex<String>,
-    pub(crate) dialog: Mutex<Option<DialogRequest>>,
-    /// Bumped by every mode change; a running window animation stops when it no longer matches.
-    pub(crate) motion: std::sync::atomic::AtomicU64,
-    pub(crate) projects_motion: std::sync::atomic::AtomicU64,
-    /// Number of windows springing right now.
-    pub(crate) animating: std::sync::atomic::AtomicU32,
-    /// Logical rect of the editor's project button, where the projects panel springs from.
-    pub(crate) projects_origin: Mutex<Option<[f64; 4]>>,
+    /// Every setting, read once from SQLite; window code reads these on each mode change.
+    settings: RwLock<HashMap<String, String>>,
+    /// Events for the editor page that arrived while it was unloaded or still starting.
+    pub(crate) pending: Mutex<Vec<(String, String)>>,
+    /// The editor page has registered its listeners and drained `pending`.
+    pub(crate) main_ready: AtomicBool,
+    pub(crate) building: AtomicBool,
+    /// Bumped by every mode change; an unload countdown only fires if it still matches.
+    pub(crate) idle: AtomicU64,
 }
 
 impl AppState {
@@ -41,58 +39,94 @@ impl AppState {
         std::fs::create_dir_all(root.join("attachments")).map_err(|e| e.to_string())?;
         std::fs::create_dir_all(root.join("backups")).map_err(|e| e.to_string())?;
         let db_path = root.join("topnote.db");
-        let state = Self {root,db_path,mode:Mutex::new("capsule".into()),hotkey:Mutex::new("Ctrl+Shift+Space".into()),dialog:Mutex::new(None),motion:Default::default(),projects_motion:Default::default(),animating:Default::default(),projects_origin:Mutex::new(None)};
+        let db = Mutex::new(db::connect(&db_path).map_err(|e| e.to_string())?);
+        let state = Self {root,db_path,db,mode:Mutex::new("capsule".into()),hotkey:Mutex::new("Ctrl+Shift+Space".into()),settings:RwLock::new(HashMap::new()),pending:Mutex::new(Vec::new()),main_ready:AtomicBool::new(false),building:AtomicBool::new(false),idle:AtomicU64::new(0)};
         attachments::cleanup_old_drag_files(&state);
-        let mut conn = state.connection()?;
-        db::migrate(&mut conn).map_err(|e| e.to_string())?;
-        if let Err(error) = backup::auto_backup(&conn,&state) { eprintln!("Backup automático: {error}"); }
+        {
+            let mut conn = state.connection()?;
+            db::migrate(&mut conn).map_err(|e| e.to_string())?;
+            if let Err(error) = backup::auto_backup(&conn,&state) { eprintln!("Backup automático: {error}"); }
+        }
+        state.reload_settings()?;
         Ok(state)
     }
-    fn connection(&self) -> Result<Connection, String> { db::connect(&self.db_path).map_err(|e| e.to_string()) }
+    /// The shared connection. Hold the guard only for the work at hand: anything else that needs
+    /// the database (settings included) waits for it, so never call back into `self` while holding it.
+    fn connection(&self) -> Result<MutexGuard<'_, Connection>, String> { Ok(self.db.lock().unwrap_or_else(|e| e.into_inner())) }
     fn safe_attachment_path(&self, relative: &str) -> Result<PathBuf, String> {
         let path = Path::new(relative);
         let parts: Vec<_> = path.components().collect();
         if parts.len() < 3 || parts.first() != Some(&Component::Normal("attachments".as_ref())) || parts.iter().any(|c| !matches!(c,Component::Normal(_))) { return Err("Caminho de anexo inválido.".into()); }
         Ok(self.root.join(path))
     }
+    pub(crate) fn setting(&self, key: &str) -> Option<String> {
+        self.settings.read().ok()?.get(key).cloned()
+    }
+    pub(crate) fn settings_snapshot(&self) -> HashMap<String, String> {
+        self.settings.read().map(|settings| settings.clone()).unwrap_or_default()
+    }
+    pub(crate) fn set_setting(&self, key: &str, value: &str) -> Result<(), String> {
+        self.connection()?.execute("INSERT INTO settings(key,value) VALUES (?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![key,value]).map_err(|e| e.to_string())?;
+        self.settings.write().map_err(|e| e.to_string())?.insert(key.into(), value.into());
+        Ok(())
+    }
+    pub(crate) fn remove_settings(&self, keys: &[&str]) -> Result<(), String> {
+        let conn = self.connection()?;
+        let mut settings = self.settings.write().map_err(|e| e.to_string())?;
+        for key in keys {
+            conn.execute("DELETE FROM settings WHERE key=?1", [key]).map_err(|e| e.to_string())?;
+            settings.remove(*key);
+        }
+        Ok(())
+    }
+    /// Reloads the cache after something wrote the settings table directly (backups, restores).
+    pub(crate) fn reload_settings(&self) -> Result<(), String> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT key,value FROM settings").map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?,r.get(1)?))).map_err(|e| e.to_string())?;
+        let loaded = rows.collect::<rusqlite::Result<HashMap<String,String>>>().map_err(|e| e.to_string())?;
+        *self.settings.write().map_err(|e| e.to_string())? = loaded;
+        Ok(())
+    }
 }
 
 fn menu_action(app: &tauri::AppHandle, action: &str) {
     match action {
-        "open" => { let _ = app.emit_to("main","topnote:request-mode","quick"); }
-        "new" => { let _ = app.emit("topnote:navigate","new"); }
-        "workspace" => { let _ = app.emit_to("main","topnote:request-mode","workspace"); }
-        "hide" => { let _ = app.emit_to("main","topnote:request-mode","hidden"); }
-        "settings" => { let _ = app.emit_to("main","topnote:navigate","settings"); }
-        "quit" => { let _ = app.emit("topnote:quit-requested",()); }
+        "open" => native::deliver(app,"topnote:request-mode","quick"),
+        "new" => native::deliver(app,"topnote:navigate","new"),
+        "workspace" => native::deliver(app,"topnote:request-mode","workspace"),
+        "hide" => native::deliver(app,"topnote:request-mode","hidden"),
+        "settings" => native::deliver(app,"topnote:navigate","settings"),
+        "quit" => {
+            // With the editor unloaded there is no unsaved text to flush.
+            if app.get_webview_window("main").is_some() && app.state::<AppState>().main_ready.load(Ordering::SeqCst) { native::deliver(app,"topnote:quit-requested",""); }
+            else { app.exit(0); }
+        }
         _ => {}
     }
 }
 
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app,_,_| { let _ = app.emit_to("main","topnote:request-mode","quick"); }))
+    let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app,_,_| native::deliver(app,"topnote:request-mode","quick")))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent,None))
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app,shortcut,event| {
             if event.state() == ShortcutState::Pressed {
                 if Shortcut::from_str("Ctrl+K").map(|search| shortcut == &search).unwrap_or(false) {
-                    let _ = app.emit_to("main","topnote:navigate","search");
+                    native::deliver(app,"topnote:navigate","search");
                     return;
                 }
-                let _ = app.emit_to("main","topnote:request-mode","toggle");
+                native::deliver(app,"topnote:request-mode","toggle");
             }
         }).build())
         .setup(|app| {
             let root = app.path().app_local_data_dir()?;
             let state = AppState::new(root).map_err(std::io::Error::other)?;
             app.manage(state);
-            // The dialog window is created on demand (native::ensure_window) and destroyed on close.
-            for config in app.config().app.windows.iter().filter(|config| config.label != "dialog") {
-                tauri::WebviewWindowBuilder::from_config(app,config)?.build()?;
-            }
-            native::initialize_windows(app.handle()).map_err(std::io::Error::other)?;
+            capsule::create(app.handle(), native::capsule_action).map_err(std::io::Error::other)?;
+            native::refresh_capsule_appearance(app.handle());
             native::initialize_hotkey(app.handle(),&app.state::<AppState>());
             let backup_app = app.handle().clone();
             std::thread::spawn(move || loop {
@@ -101,6 +135,7 @@ pub fn run() {
                 if let Ok(conn) = state.connection() {
                     if let Err(error) = backup::auto_backup(&conn,&state) { eprintln!("Backup automático: {error}"); }
                 }
+                let _ = state.reload_settings();
             });
             let items = [
                 MenuItem::with_id(app,"open","Abrir TopNote",true,None::<&str>)?,
@@ -121,30 +156,29 @@ pub fn run() {
                     if let TrayIconEvent::Click { button:MouseButton::Left,button_state:MouseButtonState::Up,.. } = event { menu_action(tray.app_handle(),"open"); }
                 })
                 .build(app)?;
-            let first_run = app.state::<AppState>().connection()?.query_row("SELECT value FROM settings WHERE key='onboardingDone'",[],|r|r.get::<_,String>(0)).is_err();
-            if first_run { native::set_window_mode(app.handle(),"quick",false).map_err(std::io::Error::other)?; }
+            let state = app.state::<AppState>();
+            if state.setting("onboardingDone").is_none() { native::deliver(app.handle(),"topnote:request-mode","quick"); }
             else {
-                let show = app.state::<AppState>().connection()?.query_row("SELECT value FROM settings WHERE key='showCapsuleAtStart'",[],|r|r.get::<_,String>(0)).unwrap_or_else(|_|"true".into());
+                let show = state.setting("showCapsuleAtStart").unwrap_or_else(||"true".into());
                 native::set_window_mode(app.handle(),if show == "false" {"hidden"} else {"capsule"},false).map_err(std::io::Error::other)?;
+                // Load the editor now so the first opening is instant; it unloads again if unused.
+                native::prewarm(app.handle());
             }
             Ok(())
         })
         .on_window_event(|window,event| {
-            let animating = window.state::<AppState>().animating.load(std::sync::atomic::Ordering::SeqCst) > 0;
-            if let tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } = event {
-                if animating { return; }
-                if let Err(error) = native::round_window(window) { eprintln!("Cantos da janela: {error}"); }
-            }
-            if let tauri::WindowEvent::CloseRequested {api,..} = event {
-                api.prevent_close();
-                if window.label() == "dialog" {
-                    if let Ok(mut request) = window.state::<AppState>().dialog.lock() { *request = None; }
-                    let _ = window.destroy();
-                } else if window.label() == "projects" {
-                    let _ = native::hide_projects(window.app_handle());
-                } else {
-                    let _ = window.app_handle().emit("topnote:close-requested",());
+            match event {
+                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                    if let Err(error) = native::round_window(window) { eprintln!("Cantos da janela: {error}"); }
                 }
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    native::deliver(window.app_handle(),"topnote:close-requested","");
+                }
+                tauri::WindowEvent::Destroyed if window.label() == "main" => {
+                    window.state::<AppState>().main_ready.store(false, Ordering::SeqCst);
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -155,8 +189,12 @@ pub fn run() {
             commands::list_versions,commands::restore_version,commands::list_attachments,commands::import_attachment,
             commands::import_attachment_path,commands::delete_attachment,commands::open_attachment,commands::reveal_attachment,commands::start_attachment_drag,commands::get_settings,commands::set_setting,
             commands::data_directory,commands::create_backup,commands::auto_backup_if_due,commands::export_project,commands::restore_backup,commands::export_note_file,
-            commands::import_text_note,commands::set_window_mode,commands::get_window_mode,commands::set_capsule_active,commands::show_dialog,commands::get_dialog_request,commands::hide_dialog,commands::show_projects,commands::hide_projects,commands::is_app_focused,commands::quit_app,commands::report_error
+            commands::import_text_note,commands::set_window_mode,commands::activate_window,commands::get_window_mode,commands::motion_anchor,commands::main_ready,commands::is_app_focused,commands::quit_app,commands::report_error
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("TopNote não pôde iniciar");
+    app.run(|_, event| {
+        // The editor window is unloaded while idle; the app lives on in the capsule and tray.
+        if let RunEvent::ExitRequested { code: None, api, .. } = event { api.prevent_exit(); }
+    });
 }

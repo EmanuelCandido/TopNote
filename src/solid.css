@@ -1,0 +1,71 @@
+/* Solid: the windows take the capsule's look, an opaque charcoal card. No sheen, no blur and no
+   see-through layers; the depth stays in the raised control groups (--lg-depth), a soft bevel on
+   each card's edge and the drop shadows of the layers that float above it. Loaded last. */
+/* Shared tokens are listed for both themes, since the earlier files set them per theme. */
+:root, :root[data-theme="light"] {
+  --glass-opacity: 1;
+  --glass-surface: var(--solid);
+  --glass-layer: var(--solid-raised);
+  --glass-layer-strong: var(--solid-raised);
+  --glass-sheen: none;
+  --glass-blur: none;
+}
+:root:not([data-theme="light"]) {
+  --solid: #2b2b2b;
+  --solid-raised: #333333;
+  --solid-sunken: #242424;
+  --bg: #202020;
+  --surface: #2b2b2b;
+  --surface-2: #323232;
+  --surface-3: #3b3b3b;
+  --line: rgba(255, 255, 255, .07);
+  --line-strong: rgba(255, 255, 255, .12);
+  --glass-border: rgba(255, 255, 255, .08);
+  /* A bevel instead of a lit rim: lighter along the top, darker along the bottom. */
+  --lg-edge: linear-gradient(180deg, rgba(255, 255, 255, .11), rgba(255, 255, 255, .03) 30%, rgba(0, 0, 0, .05) 70%, rgba(0, 0, 0, .32));
+}
+:root[data-theme="light"] {
+  --solid: #f2f2f3;
+  --solid-raised: #fbfbfc;
+  --solid-sunken: #e8e8ea;
+  --bg: #e8e8ea;
+  --surface: #f2f2f3;
+  --surface-2: #ebebed;
+  --surface-3: #e1e1e4;
+  --line: rgba(0, 0, 0, .07);
+  --line-strong: rgba(0, 0, 0, .12);
+  --glass-border: rgba(0, 0, 0, .08);
+  --lg-edge: linear-gradient(180deg, #fff, rgba(255, 255, 255, .4) 30%, rgba(0, 0, 0, .03) 70%, rgba(0, 0, 0, .12));
+}
+
+*, *::before, *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+
+/* Window cards */
+.quick-detail, .quick-favorites, .quick-loading, .onboarding,
+:root[data-theme="light"] :is(.quick-detail, .quick-favorites, .quick-loading, .onboarding) {
+  background: var(--solid);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+.quick-detail :is(.detail-header, .detail-main, .detail-footer),
+:root[data-theme="light"] .quick-detail :is(.detail-header, .detail-main, .detail-footer) { background: transparent; }
+.workspace-titlebar, :root[data-theme="light"] .workspace-titlebar { background: var(--solid); background-image: none; }
+.app-workspace .workspace-shell, :root[data-theme="light"] .app-workspace .workspace-shell { background: var(--solid); }
+.sidebar, :root[data-theme="light"] .sidebar { background: var(--solid-sunken); }
+.workspace-detail, :root[data-theme="light"] .workspace-detail { background: var(--solid-raised); }
+
+/* Layers that float above the card: raised and opaque. */
+.dialog-window, .dialog-cover .dialog-window, :root[data-theme="light"] :is(.dialog-window, .dialog-cover .dialog-window),
+.quick-project-picker, .projects-sheet .quick-project-picker, :root[data-theme="light"] .projects-sheet .quick-project-picker,
+.detail-more-menu, .context-menu, .palette, .project-actions, .slash-menu, .quick-attachments, .toast { background: var(--solid-raised); }
+.dialog-window .modal-footer, :root[data-theme="light"] .dialog-window .modal-footer { background: transparent; }
+
+/* Icon wells take the raised control groups' look: neutral glyph, charcoal fill and the bevel,
+   with no tinted tile and no glow behind them. */
+.onboarding-symbol, .empty-icon, .attachments-empty-icon, .dialog-heading .modal-icon, .palette-row-icon, .palette-row.selected .palette-row-icon,
+:root[data-theme="light"] :is(.onboarding-symbol, .empty-icon, .attachments-empty-icon, .dialog-heading .modal-icon, .palette-row-icon) {
+  background: var(--solid-raised); color: var(--text); border: 0; border-radius: 999px;
+  box-shadow: var(--lg-depth);
+}
+.onboarding-symbol { width: 72px; height: 72px; }
+.onboarding-glow { display: none; }
+.workspace-empty { background: none; }

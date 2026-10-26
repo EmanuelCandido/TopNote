@@ -1,6 +1,7 @@
-import { Archive, ChevronDown, ChevronRight, Clock3, FileText, Folder, Layers3, Plus, Star, Trash2 } from 'lucide-react'
+import { Archive, ChevronDown, ChevronRight, Clock3, Folder, Layers3, Plus, Star, Trash2 } from 'lucide-react'
 import { isWindowHeader, useWindowDrag } from '../hooks/useWindowDrag'
 import type { Folder as FolderType, Note, Project, View } from '../types'
+import { BrandIcon } from './BrandIcon'
 import { ProjectIcon } from './ProjectIcon'
 import { ProjectNotes } from './ProjectNotes'
 
@@ -35,7 +36,7 @@ export function Sidebar(props: Props) {
     { id: 'trash' as View, label: 'Lixeira', icon: Trash2 },
   ]
   return <aside className="sidebar">
-    <div className="sidebar-brand" {...drag.bind}><FileText size={25} strokeWidth={2.2}/><span>TopNote</span></div>
+    <div className="sidebar-brand" {...drag.bind}><BrandIcon/><span>TopNote</span></div>
     <div className="sidebar-section-label">Biblioteca</div>
     <nav aria-label="Biblioteca">
       {sections.map(item => <button key={item.id} className={`nav-item ${view === item.id ? 'active' : ''}`} onClick={() => onSelect(item.id)}><item.icon size={17} strokeWidth={1.8}/>{item.label}</button>)}

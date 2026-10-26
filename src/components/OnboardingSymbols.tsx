@@ -1,5 +1,14 @@
 type IconProps = { size?: number }
 
+/** A note held by the capsule's paper clip: the welcome page's symbol. */
+export function ClippedNoteIcon({ size = 34 }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M18 8h-6a4 4 0 0 0-4 4v20a4 4 0 0 0 4 4h16a4 4 0 0 0 4-4V12a4 4 0 0 0-4-4"/>
+    <path d="M26 15V7.5a3 3 0 0 0-6 0V17a1.5 1.5 0 0 0 3 0V9.5"/>
+    <path d="M13 24h14M13 29h9"/>
+  </svg>
+}
+
 export function KeyboardShortcutIcon({ size = 34 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <rect x="3" y="10" width="34" height="21" rx="4"/>

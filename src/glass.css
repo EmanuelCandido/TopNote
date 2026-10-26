@@ -1,0 +1,85 @@
+/* Glass, layered like Apple's materials. Behind each window the native acrylic (DWM) blurs
+   the desktop; the page adds a translucent tint, a specular sheen along the top edge and a
+   hairline rim that catches the light. Layers inside the window (projects sheet, dialogs,
+   menus, palette) blur and saturate the page beneath them with backdrop-filter. */
+:root {
+  --glass-rim: rgba(255, 255, 255, .13);
+  --glass-rim-soft: rgba(255, 255, 255, .045);
+  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, .075) 0, rgba(255, 255, 255, .02) 64px, rgba(255, 255, 255, 0) 140px);
+  --glass-layer: rgba(34, 36, 43, .62);
+  --glass-layer-strong: rgba(28, 30, 36, .8);
+  --glass-shadow: 0 22px 54px rgba(0, 0, 0, .36), 0 3px 10px rgba(0, 0, 0, .22);
+  --glass-blur: blur(24px) saturate(1.8);
+}
+:root[data-theme="light"] {
+  --glass-rim: rgba(255, 255, 255, .75);
+  --glass-rim-soft: rgba(40, 60, 95, .07);
+  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, .55) 0, rgba(255, 255, 255, .12) 64px, rgba(255, 255, 255, 0) 140px);
+  --glass-layer: rgba(250, 251, 254, .62);
+  --glass-layer-strong: rgba(248, 250, 253, .84);
+  --glass-shadow: 0 22px 54px rgba(30, 45, 75, .2), 0 3px 10px rgba(30, 45, 75, .1);
+}
+
+/* Window surfaces: sheen over the tint, with a lit top rim and a faint inner edge. */
+.quick-detail, .quick-favorites, .quick-loading, .onboarding,
+:root[data-theme="light"] .quick-detail, :root[data-theme="light"] .quick-favorites,
+:root[data-theme="light"] .quick-loading, :root[data-theme="light"] .onboarding {
+  background: var(--glass-sheen), var(--glass-surface);
+  box-shadow: inset 0 1px 0 var(--glass-rim), inset 0 0 0 1px var(--glass-rim-soft);
+}
+.workspace-titlebar, :root[data-theme="light"] .workspace-titlebar {
+  background-image: var(--glass-sheen);
+  box-shadow: inset 0 1px 0 var(--glass-rim);
+}
+
+/* Layers inside the window: frosted, saturated, floating on a soft shadow. */
+.detail-more-menu, .context-menu, .palette, .project-actions, .slash-menu {
+  background: var(--glass-layer-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-rim);
+}
+
+/* Projects: a sheet that drops from the project button over the editor. */
+.projects-sheet-cover {
+  position: absolute; inset: 0; z-index: 60; height: auto !important;
+  border-radius: 18px; background: rgba(4, 6, 10, .14);
+  animation: fade-in .18s var(--ease-out) backwards;
+}
+:root[data-theme="light"] .projects-sheet-cover { background: rgba(30, 45, 75, .06); }
+.projects-sheet {
+  position: absolute; top: 66px; left: 10px; bottom: 10px; width: min(300px, calc(100% - 20px));
+  transform-origin: 40px 0; animation: sheet-in var(--spring-jelly-duration) var(--spring-jelly) backwards;
+}
+.projects-sheet .quick-project-picker, :root[data-theme="light"] .projects-sheet .quick-project-picker {
+  background: var(--glass-sheen), var(--glass-layer);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-rim);
+}
+.projects-sheet .quick-project-header { cursor: default; }
+.projects-sheet .project-actions-cover { position: absolute; border-radius: 18px; }
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(-8px) scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Dialogs: a centred glass sheet above whatever mode the window is in. */
+.dialog-cover {
+  position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px;
+  border-radius: 18px; background: rgba(4, 6, 10, .3);
+  animation: fade-in .18s var(--ease-out) backwards;
+}
+:root[data-theme="light"] .dialog-cover { background: rgba(30, 45, 75, .12); }
+.dialog-cover .dialog-window, :root[data-theme="light"] .dialog-cover .dialog-window {
+  width: min(540px, 100%); height: min(700px, 100%);
+  background: var(--glass-sheen), var(--glass-layer-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border-radius: 18px; box-shadow: var(--glass-shadow), inset 0 1px 0 var(--glass-rim);
+  animation: pop-in var(--spring-jelly-duration) var(--spring-jelly) backwards;
+}
+.dialog-cover .dialog-folder { width: min(460px, 100%); height: min(330px, 100%); }
+.dialog-cover .dialog-versions { width: min(560px, 100%); height: min(520px, 100%); }
+.dialog-cover .form-modal-head { cursor: default; }
+.dialog-cover .dialog-error { position: absolute; }
+

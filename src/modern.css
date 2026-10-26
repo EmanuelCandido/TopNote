@@ -1,0 +1,232 @@
+/* Modern layer: softer surfaces, fewer hairlines, rounder controls and calmer labels.
+   Only colours, radii and spacing change here: no new blur, shadows on moving parts or animations,
+   so the cost per frame stays what it was. */
+:root {
+  --font-display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --hover: rgba(255, 255, 255, .06);
+  --selected: rgba(255, 255, 255, .09);
+  --field: rgba(255, 255, 255, .05);
+  --field-hover: rgba(255, 255, 255, .08);
+  --accent-grad: linear-gradient(180deg, #5d9bff, #3d74f0);
+  --success: #5fd4a6;
+  --success-bg: rgba(95, 212, 166, .12);
+}
+:root:not([data-theme="light"]) {
+  --accent: #6aa4ff;
+  --accent-bg: rgba(88, 145, 255, .16);
+  --line: rgba(220, 228, 245, .08);
+  --line-strong: rgba(220, 228, 245, .15);
+  --surface-2: #24272e;
+  --surface-3: #2e323a;
+  --glass-border: rgba(225, 232, 245, .16);
+}
+:root[data-theme="light"] {
+  --accent: #2f6fe8;
+  --accent-bg: rgba(47, 111, 232, .10);
+  --hover: rgba(20, 35, 60, .05);
+  --selected: rgba(20, 35, 60, .075);
+  --field: rgba(20, 35, 60, .04);
+  --field-hover: rgba(20, 35, 60, .07);
+  --accent-grad: linear-gradient(180deg, #4b88f5, #2f6fe8);
+  --success: #17946a;
+  --success-bg: rgba(23, 148, 106, .10);
+}
+
+/* Typography: display face for headings, sentence-case labels instead of spaced capitals. */
+h1, h2, .note-title-input, .sidebar-brand, .quick-favorites-head, .settings-header h1 { font-family: var(--font-display); }
+.eyebrow, .sidebar-section-label, .context-label, .slash-title, .palette-group {
+  text-transform: none; letter-spacing: 0; font-size: .72rem; font-weight: 600; color: var(--faint);
+}
+.note-kicker {
+  display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px;
+  background: var(--accent-bg); letter-spacing: .01em; text-transform: none; font-size: .7rem; font-weight: 600;
+}
+
+/* Controls */
+.icon-button, .tool, .footer-tool, .quick-note-add, .quick-project-trigger, .quick-project-add,
+.quick-project-note-add, .accent-icon-button, .project-heading button { border-radius: var(--radius-sm); }
+.icon-button:hover, .tool:hover, .footer-tool:hover, .project-heading button:hover,
+.workspace-titlebar button:hover, .capsule-actions button:hover { background: var(--hover); }
+.tool.active, .footer-tool.active { background: var(--accent-bg); color: var(--accent); }
+.primary-button {
+  background: var(--accent-grad); border-radius: var(--radius); padding: 9px 15px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 1px 2px rgba(0, 0, 0, .2);
+}
+.primary-button:hover { background: var(--accent-grad); filter: brightness(1.08); }
+.secondary-button { background: var(--field); border: 1px solid var(--line-strong); border-radius: var(--radius); }
+.secondary-button:hover { background: var(--field-hover); filter: none; }
+.subtle-button { border-radius: var(--radius); }
+.subtle-button:hover { background: var(--hover); }
+.accent-icon-button { background: var(--accent-grad); color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22); }
+.accent-icon-button:hover { background: var(--accent-grad); filter: brightness(1.1); }
+.tag-chip { border-radius: 999px; padding: 3px 9px; font-weight: 550; }
+
+/* Fields: filled, borderless, with a soft focus ring. */
+.tag-entry, .hotkey-input, .setting-control select, .quick-extras select,
+.form-modal input, .form-modal textarea, .dialog-window .form-modal input, .dialog-window .form-modal textarea {
+  background-color: var(--field); border: 1px solid transparent; border-radius: var(--radius);
+  transition: background-color .15s, border-color .15s, box-shadow .15s;
+}
+.tag-entry:hover, .hotkey-input:hover, .setting-control select:hover, .form-modal input:hover, .form-modal textarea:hover { background-color: var(--field-hover); }
+.tag-entry:focus, .hotkey-input:focus, .form-modal input:focus, .form-modal textarea:focus {
+  outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg);
+}
+button:focus-visible { outline-offset: 1px; border-radius: var(--radius-sm); }
+
+/* Switch: a little larger, pill shaped. */
+.switch { width: 38px; height: 22px; border-radius: 999px; border: 0; background: var(--surface-3); padding: 3px; }
+.switch span { width: 16px; height: 16px; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+.switch.on span { transform: translateX(16px); }
+:root[data-theme="light"] .switch:not(.on) { background: rgba(20, 35, 60, .16); }
+
+/* Checklists look the same in the quick panel and the workspace. */
+.prose-editor input[type="checkbox"] {
+  appearance: none; margin: 0; width: 18px; height: 18px; flex: none; cursor: pointer;
+  border: 1.5px solid var(--faint); border-radius: 6px; background: transparent;
+  transition: background-color .15s, border-color .15s;
+}
+.prose-editor input[type="checkbox"]:hover { border-color: var(--accent); }
+.prose-editor input[type="checkbox"]:checked, .quick-detail .prose-editor input[type="checkbox"]:checked {
+  background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='m5 10 3 3 7-7' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/16px no-repeat;
+  border-color: var(--accent);
+}
+.quick-detail .prose-editor input[type="checkbox"] { width: 20px; height: 20px; border-radius: 6px; border-color: var(--faint); background-color: transparent; box-shadow: none; }
+.prose-editor ul[data-type="taskList"] li:has(input:checked) > div { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.prose-editor code { border-radius: 6px; padding: 2px 6px; background: var(--field-hover); }
+.prose-editor pre { border-radius: var(--radius-lg); background: rgba(0, 0, 0, .22); border-color: var(--line); }
+:root[data-theme="light"] .prose-editor pre { background: rgba(20, 35, 60, .04); }
+.prose-editor blockquote { border-left-width: 3px; border-radius: 2px; }
+.prose-editor img, .quick-detail .prose-editor img { border-radius: var(--radius-lg); }
+
+/* Quick panel: one even surface instead of three tinted bands. */
+.quick-detail, .quick-favorites, .quick-loading, .onboarding, .quick-project-picker { border-radius: 20px; }
+.quick-detail .detail-header, .quick-detail .detail-footer, .quick-detail .detail-main { background: rgba(10, 11, 15, .3); }
+.quick-detail .detail-header { border-bottom-color: transparent; }
+.quick-detail .detail-actions { gap: 6px; }
+.quick-detail .detail-actions .icon-button { width: 34px; height: 34px; color: var(--muted); }
+.quick-detail .detail-actions .icon-button:hover { color: var(--text); }
+.quick-project-trigger { font-size: .95rem; font-weight: 600; padding: 7px 10px; }
+.quick-project-trigger:hover, .quick-project-trigger[aria-expanded="true"], .quick-note-add:hover { background: var(--hover); }
+.quick-detail .note-title-input { font-size: 1.85rem; font-weight: 700; letter-spacing: -.025em; }
+.quick-detail .note-submeta { font-size: .82rem; color: var(--faint); }
+.quick-detail .prose-editor { font-size: 1.05rem; line-height: 1.6; }
+.quick-detail .footer-left { gap: 4px; }
+.quick-detail .footer-tool { width: 36px; height: 36px; color: var(--muted); }
+.quick-detail .footer-tool:hover { background: var(--hover); color: var(--text); }
+.quick-detail .save-status { padding: 5px 11px; border-radius: 999px; background: var(--success-bg); color: var(--success); font-size: .8rem; font-weight: 600; gap: 6px; }
+.quick-detail .save-status svg { width: 15px; height: 15px; }
+.save-status { color: var(--success); }
+.quick-detail .quick-extras { border-top-color: transparent; }
+:root[data-theme="light"] .quick-detail .detail-header,
+:root[data-theme="light"] .quick-detail .detail-main,
+:root[data-theme="light"] .quick-detail .detail-footer { background: rgba(255, 255, 255, .22); }
+.quick-project-row, .quick-project-note { border-radius: var(--radius); }
+.quick-project-row:hover, .quick-project-row[aria-expanded="true"], .quick-project-note:hover, .quick-project-add:hover, .quick-project-note-add:hover { background: var(--hover); }
+.quick-favorites-head { border-bottom-color: transparent; }
+.quick-favorites-list button { border-radius: var(--radius-lg); }
+.quick-favorites-list button:hover { background: var(--hover); border-color: transparent; }
+.quick-favorites-workspace { border-top-color: var(--line); font-weight: 600; }
+
+/* Workspace: a quiet frame with the editor raised as a rounded card. */
+.workspace-titlebar { border-radius: 20px 20px 0 0; }
+.app-workspace .workspace-shell { border-top: 0; border-radius: 0 0 20px 20px; }
+.workspace-titlebar button { border-radius: var(--radius-sm); color: var(--muted); }
+.workspace-titlebar button:hover { color: var(--text); }
+.sidebar, :root[data-theme="light"] .sidebar { background: transparent; border-right: 0; padding: 14px 10px 10px; }
+.sidebar-brand { font-size: 1.08rem; font-weight: 700; padding: 4px 10px 24px; gap: 10px; }
+.sidebar-brand .brand-icon { width: 26px; height: 26px; }
+.sidebar-section-label { padding: 0 12px; margin: 4px 0 6px; }
+.project-heading { margin-top: 22px; }
+.nav-item, .project-nav-row, .folder-nav-row, .project-note-nav-row { border-radius: var(--radius-sm); }
+.nav-item { height: 34px; gap: 10px; font-weight: 500; }
+.nav-item:hover, .project-nav-row:hover, .folder-nav-row:hover, .project-note-nav-row:hover { background: var(--hover); }
+.nav-item.active, .project-nav-row.active, .folder-nav-row.active, .project-note-nav-row[aria-current="page"] {
+  background: var(--selected); color: var(--text); font-weight: 600;
+}
+.nav-item.active svg, .project-nav-row.active .project-label > svg:first-child, .project-note-nav-row[aria-current="page"] svg { color: var(--accent); }
+.sidebar-bottom { border-top: 0; padding: 10px 12px 4px; }
+.online-dot { background: var(--success); box-shadow: 0 0 0 3px var(--success-bg); }
+
+.note-list-pane { border-right: 0; }
+.list-header { padding: 22px 14px 4px 18px; }
+.list-header h1 { font-size: 1.4rem; font-weight: 700; }
+.list-count { padding: 10px 18px 8px; }
+.note-list-scroll { padding: 0 8px 20px 6px; }
+.note-row { border-radius: var(--radius-lg); border: 0; margin-bottom: 2px; }
+.note-row:hover { background: var(--hover); }
+.note-row.selected { background: var(--selected); }
+.note-row.selected:before { left: 5px; top: 16px; bottom: auto; height: 18px; width: 3px; border-radius: 3px; }
+.note-row-main { padding: 12px 14px 12px 16px; }
+.note-row-title { font-weight: 600; }
+.note-project { font-weight: 550; }
+
+.workspace-detail {
+  margin: 0 8px 8px 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+  background: rgba(22, 24, 30, .55);
+}
+:root[data-theme="light"] .workspace-detail { background: rgba(255, 255, 255, .62); }
+.workspace-detail .detail-header { border-bottom-color: transparent; }
+.workspace-detail .detail-footer { border-top-color: var(--line); }
+.workspace-detail .note-title-input { font-size: 2.1rem; font-weight: 700; letter-spacing: -.03em; }
+.editor-toolbar {
+  border-bottom: 0; padding: 4px; gap: 2px; border-radius: var(--radius);
+  background: var(--field); width: fit-content; max-width: calc(100% - 54px);
+}
+.tool { width: 29px; height: 29px; }
+.toolbar-separator { background: var(--line-strong); }
+.properties-pane { border-left: 1px solid var(--line); background: transparent; }
+.properties-title { border-bottom: 0; padding: 20px 18px 6px; font-family: var(--font-display); font-size: .92rem; }
+.property-section { border-bottom: 0; padding: 14px 18px; }
+.property-heading { color: var(--text); font-weight: 600; }
+.property-heading svg { color: var(--faint); }
+.attachment-thumb, .attachment-file-icon { border-radius: var(--radius-sm); }
+.workspace-empty { background: radial-gradient(circle at 50% 40%, var(--accent-bg), transparent 45%); }
+.workspace-empty-art { border-radius: 28px; transform: none; border-color: var(--line-strong); }
+.workspace-empty h2 { font-weight: 700; }
+.empty-icon { border-radius: 16px; }
+
+/* Settings: grouped cards. */
+.settings-header { border-bottom: 0; padding-bottom: 8px; }
+.settings-header h1 { font-weight: 700; }
+.settings-group h2 { font-size: .92rem; font-weight: 650; }
+.settings-group-body { border-radius: var(--radius-lg); background: var(--field); border-color: var(--line); padding: 2px 18px; }
+.setting-row { min-height: 52px; }
+.setting-row label { font-size: .82rem; font-weight: 500; }
+
+/* Menus, palette and dialogs */
+.context-menu, .detail-more-menu, .slash-menu, .project-actions { border-radius: var(--radius-lg); padding: 6px; }
+.context-menu button, .detail-more-menu button, .slash-menu button, .project-actions button { border-radius: var(--radius-sm); }
+.context-menu button:hover, .detail-more-menu button:hover, .project-actions button:hover { background: var(--hover); }
+.palette { border-radius: 18px; }
+.palette-search { border-bottom-color: var(--line); padding: 16px 18px; }
+.palette-row { border-radius: var(--radius); }
+.palette-row:hover, .palette-row.selected { background: var(--selected); }
+.palette-row.selected .palette-row-icon { background: var(--accent-bg); }
+.palette-row-icon { border-radius: var(--radius-sm); }
+.palette-footer { border-top-color: var(--line); }
+.palette-footer kbd { border-radius: 6px; border-bottom-width: 2px; }
+.dialog-window, .dialog-cover .dialog-window, :root[data-theme="light"] .dialog-cover .dialog-window, .form-modal { border-radius: 20px; }
+.dialog-window .form-modal-head { border-bottom-color: transparent; }
+.dialog-window .modal-footer { border-top-color: var(--line); background: transparent; }
+.dialog-heading .modal-icon, .modal-icon { border-radius: 12px; background: var(--accent-bg); }
+.color-swatches button { border-radius: 999px; }
+.project-icon-choices button { border-radius: var(--radius); border-color: transparent; background: var(--field); }
+.project-icon-choices button:hover { background: var(--field-hover); }
+.project-icon-choices button.selected { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); }
+.toast { border-radius: 999px; padding: 9px 16px; }
+.error-banner { border-radius: var(--radius-lg); }
+.big-shortcut { border-radius: var(--radius); }
+.onboarding-symbol { border-radius: 20px; }
+
+/* Capsule */
+.capsule { border-radius: 999px; }
+.capsule-actions button { border-radius: 999px; }
+
+/* Thin scrollbars that stay out of the way. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: transparent; border: 3px solid transparent; background-clip: padding-box; border-radius: 999px; }
+:hover::-webkit-scrollbar-thumb { background-color: rgba(150, 160, 180, .3); }
+::-webkit-scrollbar-thumb:hover { background-color: rgba(150, 160, 180, .5); }

@@ -1,0 +1,136 @@
+/* Liquid glass. The native acrylic still does the only full-window blur; everything here is a
+   static layer painted once: a lit edge that is brighter where light falls (top left, bottom
+   right), a specular sheen, and controls that float as glass capsules with an inner highlight
+   and a soft drop. Menus blur a little less than before, which is both lighter and clearer. */
+:root {
+  --lg-edge: linear-gradient(135deg, rgba(255, 255, 255, .72) 0%, rgba(255, 255, 255, .22) 14%, rgba(255, 255, 255, .06) 40%, rgba(255, 255, 255, .05) 62%, rgba(255, 255, 255, .24) 86%, rgba(255, 255, 255, .55) 100%);
+  --lg-fill: rgba(255, 255, 255, .06);
+  --lg-fill-hover: rgba(255, 255, 255, .11);
+  --lg-fill-press: rgba(255, 255, 255, .16);
+  --lg-highlight: inset 0 1px 0 rgba(255, 255, 255, .16), inset 0 0 0 1px rgba(255, 255, 255, .05);
+  --lg-depth: inset 0 1px 1px rgba(255, 255, 255, .16), inset 0 -1px 1px rgba(0, 0, 0, .2), inset 0 0 0 1px rgba(255, 255, 255, .05), 0 6px 18px rgba(0, 0, 0, .2);
+  --glass-sheen: radial-gradient(120% 60% at 12% -8%, rgba(255, 255, 255, .11), rgba(255, 255, 255, 0) 58%), radial-gradient(80% 50% at 100% 108%, rgba(255, 255, 255, .045), rgba(255, 255, 255, 0) 60%);
+  --glass-layer: rgba(30, 32, 40, .56);
+  --glass-layer-strong: rgba(26, 28, 35, .7);
+  --glass-blur: blur(16px) saturate(1.9) brightness(1.04);
+  --glass-shadow: 0 24px 60px rgba(0, 0, 0, .34), 0 4px 12px rgba(0, 0, 0, .2);
+}
+:root[data-theme="light"] {
+  --lg-edge: linear-gradient(135deg, #fff 0%, rgba(255, 255, 255, .7) 16%, rgba(110, 130, 165, .16) 45%, rgba(110, 130, 165, .14) 62%, rgba(255, 255, 255, .7) 86%, #fff 100%);
+  --lg-fill: rgba(255, 255, 255, .5);
+  --lg-fill-hover: rgba(255, 255, 255, .72);
+  --lg-fill-press: rgba(255, 255, 255, .9);
+  --lg-highlight: inset 0 1px 0 rgba(255, 255, 255, .9), inset 0 0 0 1px rgba(40, 60, 95, .06);
+  --lg-depth: inset 0 1px 1px #fff, inset 0 -1px 1px rgba(30, 45, 75, .07), inset 0 0 0 1px rgba(40, 60, 95, .06), 0 6px 18px rgba(30, 45, 75, .1);
+  --glass-sheen: radial-gradient(120% 60% at 12% -8%, rgba(255, 255, 255, .6), rgba(255, 255, 255, 0) 58%), radial-gradient(80% 50% at 100% 108%, rgba(255, 255, 255, .3), rgba(255, 255, 255, 0) 60%);
+  --glass-layer: rgba(250, 251, 254, .55);
+  --glass-layer-strong: rgba(248, 250, 253, .74);
+}
+
+/* The lit edge: a 1px gradient ring masked out of a full-size layer. */
+.quick-detail, .quick-favorites, .quick-loading, .onboarding, .app-workspace, .palette, .dialog-window,
+.projects-sheet .quick-project-picker { position: relative; }
+.quick-detail::after, .quick-favorites::after, .quick-loading::after, .onboarding::after, .app-workspace::after,
+.palette::after, .context-menu::after, .detail-more-menu::after, .slash-menu::after, .project-actions::after,
+.dialog-cover .dialog-window::after, .projects-sheet .quick-project-picker::after, .quick-attachments::after {
+  content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  border-radius: inherit; padding: 1.25px; background: var(--lg-edge);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+.app-workspace { border-radius: 20px; }
+.quick-detail, .quick-favorites, .quick-loading, .onboarding, .workspace-titlebar, .app-workspace .workspace-shell,
+.palette, .context-menu, .detail-more-menu, .slash-menu, .project-actions, .dialog-cover .dialog-window,
+.projects-sheet .quick-project-picker { border-color: rgba(255, 255, 255, .05); }
+
+/* Floating capsules: toolbars and action groups sit on the glass instead of in bands. */
+.quick-detail .detail-actions, .quick-detail .footer-left, .editor-toolbar {
+  background: var(--lg-fill); box-shadow: var(--lg-depth); border-radius: 999px; padding: 3px;
+}
+.quick-detail .detail-actions { gap: 2px; }
+.quick-detail .footer-left { gap: 2px; }
+.quick-detail .detail-actions .icon-button, .quick-detail .footer-tool { width: 34px; height: 34px; border-radius: 999px; }
+.editor-toolbar { padding: 3px 6px; }
+.editor-toolbar .tool { border-radius: 999px; }
+.quick-project-trigger, .quick-note-add { border-radius: 999px; }
+.quick-detail .save-status { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), inset 0 0 0 1px rgba(95, 212, 166, .16); }
+
+/* Glass controls: a bubble of light on hover, brighter while pressed. */
+.icon-button:hover, .tool:hover, .footer-tool:hover, .quick-note-add:hover, .quick-project-trigger:hover,
+.quick-project-add:hover, .quick-project-note-add:hover, .workspace-titlebar button:hover, .project-heading button:hover {
+  background: var(--lg-fill-hover); box-shadow: var(--lg-highlight);
+}
+.icon-button:active, .tool:active, .footer-tool:active, .quick-note-add:active, .quick-project-add:active,
+.quick-project-note-add:active { background: var(--lg-fill-press); }
+.tool.active, .footer-tool.active { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), inset 0 0 0 1px rgba(106, 164, 255, .22); }
+
+/* Buttons are capsules; the primary one is tinted glass rather than flat paint. */
+.primary-button, .secondary-button, .subtle-button, .workspace-titlebar button { border-radius: 999px; }
+.primary-button, .accent-icon-button {
+  background: linear-gradient(180deg, rgba(118, 172, 255, .92), rgba(58, 112, 240, .92));
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .5), inset 0 -1px 2px rgba(10, 30, 90, .25), 0 4px 14px rgba(58, 112, 240, .32);
+}
+.primary-button:hover, .accent-icon-button:hover { background: linear-gradient(180deg, rgba(118, 172, 255, .92), rgba(58, 112, 240, .92)); filter: brightness(1.08); }
+.accent-icon-button { border-radius: 999px; }
+.secondary-button { background: var(--lg-fill); border-color: transparent; box-shadow: var(--lg-depth); }
+.secondary-button:hover { background: var(--lg-fill-hover); }
+
+/* Selection is a pane of glass resting on the list. */
+.nav-item.active, .project-nav-row.active, .folder-nav-row.active, .project-note-nav-row[aria-current="page"],
+.note-row.selected, .palette-row.selected, .quick-project-row[aria-expanded="true"] {
+  background: var(--lg-fill-hover); box-shadow: var(--lg-highlight);
+}
+.nav-item, .project-nav-row, .folder-nav-row, .project-note-nav-row { border-radius: 999px; }
+.note-row, .palette-row { border-radius: 16px; }
+.workspace-detail { background: rgba(22, 24, 30, .5); border-color: rgba(255, 255, 255, .06); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), 0 10px 30px rgba(0, 0, 0, .16); border-radius: 18px; }
+:root[data-theme="light"] .workspace-detail { background: rgba(255, 255, 255, .58); box-shadow: inset 0 1px 0 #fff, 0 10px 30px rgba(30, 45, 75, .08); }
+
+/* Fields and switches */
+.tag-entry, .hotkey-input, .setting-control select, .form-modal input, .form-modal textarea { box-shadow: inset 0 1px 2px rgba(0, 0, 0, .14), inset 0 0 0 1px rgba(255, 255, 255, .04); }
+:root[data-theme="light"] :is(.tag-entry, .hotkey-input, .setting-control select, .form-modal input, .form-modal textarea) { box-shadow: inset 0 1px 2px rgba(30, 45, 75, .08); }
+.switch { box-shadow: inset 0 1px 2px rgba(0, 0, 0, .25); }
+.switch.on { background: linear-gradient(180deg, #6eaaff, #3d74f0); }
+.switch span { box-shadow: 0 1px 4px rgba(0, 0, 0, .3), inset 0 -1px 1px rgba(0, 0, 0, .08); }
+.settings-group-body { box-shadow: var(--lg-highlight); background: var(--lg-fill); border-color: transparent; border-radius: 18px; }
+.tag-chip { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1); }
+
+/* Popovers: rounder glass. */
+.context-menu, .detail-more-menu, .slash-menu, .project-actions { border-radius: 18px; }
+.context-menu button, .detail-more-menu button, .slash-menu button, .project-actions button { border-radius: 12px; }
+.palette { border-radius: 22px; }
+.dialog-cover .dialog-window, :root[data-theme="light"] .dialog-cover .dialog-window { border-radius: 24px; }
+.toast { background: var(--glass-layer-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-shadow), var(--lg-highlight); border-color: transparent; }
+.quick-project-trigger svg, .quick-note-add, .quick-project-add { color: var(--muted); }
+
+/* Attachments: a glass popover that rises from the paperclip. */
+.quick-attachments-cover { position: absolute; inset: 0; z-index: 14; }
+.quick-attachments {
+  left: 14px; right: auto; bottom: 76px; width: min(380px, calc(100% - 28px)); max-height: min(340px, calc(100% - 150px));
+  padding: 4px; border-radius: 22px; border: 1px solid rgba(255, 255, 255, .05);
+  background: var(--glass-sheen), var(--glass-layer-strong);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow), var(--lg-highlight);
+  transform-origin: bottom left;
+}
+.quick-attachments .property-section { padding: 12px 12px 10px; border: 0; }
+.quick-attachments .property-heading { margin-bottom: 6px; padding-left: 4px; font-size: .86rem; color: var(--text); }
+.attachments-heading-button {
+  display: grid; place-items: center; width: 28px; height: 28px; margin-left: 2px; flex: none;
+  border-radius: 999px; color: var(--muted);
+  transition: background-color .15s var(--ease-out), color .15s var(--ease-out), transform var(--spring-bouncy-duration) var(--spring-bouncy);
+}
+.property-heading span + .attachments-heading-button { margin-left: 8px; }
+.attachments-heading-button:hover { background: var(--lg-fill-hover); color: var(--text); box-shadow: var(--lg-highlight); }
+.attachments-heading-button:active { transform: scale(1.12); transition-duration: .12s, .12s, .16s; }
+.attachments-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 10px 8px 6px; text-align: center; }
+.attachments-empty-icon { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 999px; background: var(--accent-bg); color: var(--accent); box-shadow: var(--lg-highlight); }
+.attachments-empty p { margin: 0; font-size: .8rem; line-height: 1.5; color: var(--muted); }
+.quick-attachments .attachment-row { padding: 6px; border-radius: 14px; }
+.quick-attachments .attachment-row:hover { background: var(--lg-fill); }
+.quick-attachments .attachment-thumb, .quick-attachments .attachment-file-icon { width: 36px; height: 36px; border-radius: 10px; }
+.quick-attachments .attachment-info strong { font-size: .78rem; }
+.quick-attachments .attachment-actions button { width: 26px; height: 26px; border-radius: 999px; display: none; place-items: center; }
+.quick-attachments .attachment-row:hover .attachment-actions button { display: grid; }
+.quick-attachments .attachment-actions button:hover { background: var(--lg-fill-hover); }
+.quick-attachments .attachment-drag-hint { padding-left: 4px; }
+.quick-detail .footer-tool:has(span) { width: auto; padding: 0 11px 0 8px; gap: 4px; }
